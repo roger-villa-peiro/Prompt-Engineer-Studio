@@ -1,7 +1,13 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { optimizePrompt, runPrompt, InterviewerResponse, OptimizationResult, ChatMessage } from '../services/geminiService';
+import { EvaluationService, EvaluationResult } from '../services/evaluationService';
 import { extractVariables } from '../utils/promptUtils';
+import { EvaluationDashboard } from './EvaluationDashboard';
+import { OnboardingTour } from './OnboardingTour';
+import { TemplateSelector } from './TemplateSelector';
+import { ExportModal } from './ExportModal';
+import { RichPromptEditor } from './RichPromptEditor';
 import { openDirectory, readFileContent } from '../services/fileService';
 import { FileItem } from '../types';
 import FileTree from './FileTree';
@@ -19,35 +25,44 @@ interface Props {
   setContextData: (val: string) => void;
 }
 
-// === QUICK WIN 4: VISUAL DIFF UTILITY & PERFORMANCE FIX ===
 const DiffView: React.FC<{ original: string; modified: string }> = ({ original, modified }) => {
-  // TASK 5: Performance Optimization for Large Files
-  if (original.length > 10000 || modified.length > 10000) {
+  if (original.length > 20000 || modified.length > 20000) {
     return (
-      <div className="flex flex-col items-center justify-center h-full p-8 text-slate-500 bg-surface-dark border border-white/5 rounded-xl">
-        <span className="material-symbols-outlined text-4xl mb-2">difference</span>
-        <p className="text-xs font-bold uppercase tracking-widest">Diff disabled for large files</p>
-        <p className="text-[10px] opacity-60">Content exceeds 10,000 characters.</p>
+      <div className="flex h-full gap-4 p-4 text-slate-500 font-mono text-xs">
+        <div className="flex-1 overflow-auto border p-2 border-danger/20 rounded">
+          <div className="font-bold mb-2 text-danger">ORIGINAL</div>
+          <pre>{original}</pre>
+        </div>
+        <div className="flex-1 overflow-auto border p-2 border-success/20 rounded">
+          <div className="font-bold mb-2 text-success">PROPOSED</div>
+          <pre>{modified}</pre>
+        </div>
       </div>
-    );
+    )
   }
 
-  const diff = useMemo(() => {
-    // Very naive word diff for visual aid
-    return null;
-  }, [original, modified]);
-
   return (
-    <div className="flex flex-col sm:flex-row gap-4 h-full">
-      <div className="flex-1 flex flex-col">
-        <span className="text-[10px] font-black uppercase text-danger/50 mb-2">Original</span>
-        <div className="flex-1 bg-surface-dark border border-danger/20 rounded-xl p-4 text-sm font-mono text-slate-400 overflow-y-auto whitespace-pre-wrap opacity-60">
+    <div className="flex flex-col sm:flex-row gap-4 h-full p-4 bg-background-dark/50">
+      <div className="flex-1 flex flex-col min-h-0">
+        <span className="text-[10px] font-black uppercase text-danger/50 mb-2 flex items-center gap-2">
+          <span className="material-symbols-outlined text-sm">remove_circle</span>
+          Original Version
+        </span>
+        <div className="flex-1 bg-surface-dark border-l-2 border-danger/20 rounded-r-xl p-4 text-sm font-mono text-slate-400 overflow-y-auto whitespace-pre-wrap break-words break-all opacity-80 shadow-inner">
           {original}
         </div>
       </div>
-      <div className="flex-1 flex flex-col">
-        <span className="text-[10px] font-black uppercase text-success/50 mb-2">Proposed Architecture</span>
-        <div className="flex-1 bg-surface-dark border border-success/20 rounded-xl p-4 text-sm font-mono text-success/90 overflow-y-auto whitespace-pre-wrap">
+
+      <div className="hidden sm:flex flex-col justify-center text-primary/20">
+        <span className="material-symbols-outlined text-3xl">arrow_forward</span>
+      </div>
+
+      <div className="flex-1 flex flex-col min-h-0">
+        <span className="text-[10px] font-black uppercase text-success/50 mb-2 flex items-center gap-2">
+          <span className="material-symbols-outlined text-sm">add_circle</span>
+          Optimized Proposal
+        </span>
+        <div className="flex-1 bg-surface-dark border-l-2 border-success/40 rounded-r-xl p-4 text-sm font-mono text-success/90 overflow-y-auto whitespace-pre-wrap break-words break-all shadow-inner ring-1 ring-success/5">
           {modified}
         </div>
       </div>
@@ -60,6 +75,11 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
   const navigate = useNavigate();
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
+  const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const [selectedModel, setSelectedModel] = useState('gemini-1.5-flash');
+
+  const [isEvaluating, setIsEvaluating] = useState(false);
+  const [evalResult, setEvalResult] = useState<EvaluationResult | null>(null);
   const [isTesting, setIsTesting] = useState(false);
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
@@ -68,11 +88,14 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
 
   const [rootFolder, setRootFolder] = useState<FileItem | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [showExport, setShowExport] = useState(false);
+  const [showContext, setShowContext] = useState(false);
 
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [commitMessage, setCommitMessage] = useState('Version Refinement');
 
-  // TASK 3: Hydration Guard
+  // Hydration Guard
   const [isInitialized, setIsInitialized] = useState(false);
 
   // METADATA & PERSISTENCE
@@ -84,7 +107,9 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
     const saved = localStorage.getItem('antigravity_chat_history');
     return saved ? JSON.parse(saved) : [];
   });
-  const [proposedContent, setProposedContent] = useState<string | null>(null);
+  const [proposedContent, setProposedContent] = useState<string | null>(() => {
+    return optResult?.refinedPrompt || null;
+  });
   const [progressLog, setProgressLog] = useState<string[]>([]);
   const logEndRef = useRef<HTMLDivElement>(null);
   const [showReasoning, setShowReasoning] = useState(false);
@@ -94,7 +119,7 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
     return saved ? JSON.parse(saved) : {};
   });
 
-  const isBusy = isOptimizing || isTesting || isLoadingFile || isScanning;
+  const isBusy = isOptimizing || isTesting || isLoadingFile || isScanning || isEvaluating;
   const extractedVarsFromContent = useMemo(() => extractVariables(content), [content]);
 
   // Initialization Effect
@@ -102,9 +127,8 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
     setIsInitialized(true);
   }, []);
 
-  // PERSISTENCE ENGINE (TASK 3: Secure Hydration)
+  // PERSISTENCE ENGINE
   useEffect(() => {
-    // Prevent wiping storage on initial empty render if not yet fully initialized/loaded
     if (!content && !isInitialized) return;
 
     localStorage.setItem('antigravity_active_prompt', content);
@@ -140,9 +164,10 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
   }, [addToast]);
 
   const handleOptimize = async (skipInterviewer: boolean = false) => {
-    // TASK 1: State Locking Guard
     if (isBusy || !content.trim()) return;
 
+    const controller = new AbortController();
+    setAbortController(controller);
     setIsOptimizing(true);
     setProgressLog([]);
     setProposedContent(null);
@@ -153,7 +178,6 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
     };
 
     try {
-      // TASK 4: Logic Injection (The '1% Edge')
       let historyToUse = [...chatHistory];
       if (skipInterviewer) {
         historyToUse.push({
@@ -162,13 +186,12 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
         });
       }
 
-      // === QUICK WIN 2: ESCAPE HATCH FLAGGING ===
       const result = await optimizePrompt(
         content,
         historyToUse,
         onProgress,
         contextData,
-        { skipInterviewer }
+        { skipInterviewer, model: selectedModel, signal: controller.signal }
       );
 
       if ('refinedPrompt' in result) {
@@ -177,12 +200,10 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
         if (result.partialSuccess) addToast('Recuperación parcial activada.', 'info');
         else addToast('Arquitectura refinada.', 'success');
 
-        // === QUICK WIN 3: AUTO-EXPAND INTELLIGENCE ===
         if (result.metadata.criticScore > 85) {
           setShowReasoning(true);
         }
 
-        // Clear history upon success
         setChatHistory([]);
       } else if (result.status === 'NEEDS_CLARIFICATION') {
         setChatHistory(prev => [...prev,
@@ -191,10 +212,24 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
         ]);
         addToast(`IA: ${result.clarification_question}`, 'info');
       }
-    } catch (err) {
-      handleApiError(err);
+    } catch (err: any) {
+      if (err.message === 'ABORTED' || err.name === 'AbortError') {
+        addToast('Optimización cancelada.', 'info');
+      } else {
+        handleApiError(err);
+      }
     } finally {
       setIsOptimizing(false);
+      setAbortController(null);
+    }
+  };
+
+  const cancelOptimization = () => {
+    if (abortController) {
+      abortController.abort();
+      setAbortController(null);
+      setIsOptimizing(false);
+      addToast('Cancelando...', 'info');
     }
   };
 
@@ -214,7 +249,7 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
   };
 
   const handleOpenProject = async () => {
-    if (isBusy) return; // TASK 1: Guard
+    if (isBusy) return;
     setIsScanning(true);
     try {
       const root = await openDirectory();
@@ -228,7 +263,6 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
   };
 
   const handleFileClick = useCallback(async (handle: FileSystemFileHandle) => {
-    // TASK 1: Guard inside handleFileClick
     if (isBusy) return;
 
     setIsLoadingFile(true);
@@ -244,8 +278,30 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
     }
   }, [setContent, addToast, isBusy]);
 
+  const handleEvaluate = async () => {
+    if (isBusy || !content.trim()) return;
+
+    setIsEvaluating(true);
+    setEvalResult(null);
+
+    try {
+      const output = await runPrompt(content, vars);
+      const result = await EvaluationService.evaluateOutput(content, output, contextData);
+      setEvalResult(result);
+      addToast('Evaluación completada', 'success');
+    } catch (err: any) {
+      handleApiError(err);
+    } finally {
+      setIsEvaluating(false);
+    }
+  };
+
   return (
     <div className="flex h-screen bg-background-dark overflow-hidden">
+      <OnboardingTour />
+      {showTemplates && <TemplateSelector onSelect={setContent} onClose={() => setShowTemplates(false)} />}
+      {showExport && <ExportModal content={content} onClose={() => setShowExport(false)} />}
+
       {/* File Sidebar */}
       <aside className={`transition-all duration-300 border-r border-white/5 bg-background-dark flex flex-col overflow-hidden ${sidebarOpen ? 'w-64' : 'w-0'}`}>
         <div className="p-4 border-b border-white/5 flex items-center justify-between min-w-[16rem]">
@@ -274,9 +330,18 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
               <span className="material-symbols-outlined text-[20px]">side_navigation</span>
             </button>
             <button
+              onClick={() => setShowTemplates(true)}
+              className={`size-10 flex items-center justify-center rounded-full hover:bg-white/10 ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
+              disabled={isBusy}
+              title="Template Library"
+            >
+              <span className="material-symbols-outlined text-[20px]">extension</span>
+            </button>
+            <button
               onClick={handleOpenProject}
               className={`size-10 flex items-center justify-center rounded-full hover:bg-white/10 ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
               disabled={isBusy}
+              title="Open Project Folder"
             >
               <span className="material-symbols-outlined text-[20px]">folder_open</span>
             </button>
@@ -284,6 +349,7 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
               onClick={() => navigate('/versions')}
               className={`size-10 flex items-center justify-center rounded-full hover:bg-white/10 ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
               disabled={isBusy}
+              title="Version History"
             >
               <span className="material-symbols-outlined text-[20px]">history</span>
             </button>
@@ -291,12 +357,43 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
 
           <div className="hidden sm:flex flex-col items-center">
             <h1 className="text-sm font-bold tracking-tight">Antigravity Architect</h1>
-            <span className="text-[8px] text-primary font-black uppercase tracking-[0.3em]">Cognitive Intelligence Tier</span>
+            <div className="flex gap-2 items-center">
+              <span className="text-[8px] text-primary font-black uppercase tracking-[0.3em]">Cognitive Intelligence Tier</span>
+              <select
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                className="bg-black/20 text-[8px] text-slate-400 border border-white/5 rounded px-1 py-0.5 outline-none hover:bg-black/40 cursor-pointer"
+              >
+                <option value="gemini-1.5-flash">Gemini Flash (Fast)</option>
+                <option value="gemini-1.5-pro">Gemini Pro (Smart)</option>
+              </select>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => navigate('/battle')}
+              onClick={() => setShowExport(true)}
+              className={`size-10 flex items-center justify-center rounded-full hover:bg-white/10 text-slate-300 ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
+              disabled={isBusy}
+              title="Export to Code"
+            >
+              <span className="material-symbols-outlined text-[20px]">ios_share</span>
+            </button>
+            <button
+              onClick={() => navigate('/compare')}
+              className={`size-10 flex items-center justify-center rounded-full hover:bg-white/10 text-cyan-400 ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
+              disabled={isBusy}
+              title="Multi-Model Comparison"
+            >
+              <span className="material-symbols-outlined">layers</span>
+            </button>
+            <button
+              onClick={() => navigate('/battle', {
+                state: {
+                  contentA: content,
+                  contentB: proposedContent || ''
+                }
+              })}
               className={`size-10 flex items-center justify-center rounded-full hover:bg-white/10 text-warning ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
               disabled={isBusy}
             >
@@ -327,7 +424,6 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
                 </div>
               </div>
 
-              {/* === QUICK WIN 2: ESCAPE HATCH BUTTON === */}
               <button
                 onClick={() => handleOptimize(true)}
                 className={`mt-3 sm:mt-0 bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white px-3 py-2 rounded-lg text-[10px] font-bold uppercase flex items-center gap-2 transition-all border border-white/5 ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
@@ -344,191 +440,196 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
             <span className="px-4 py-2 text-[10px] font-black text-slate-500 uppercase tracking-widest">
               {proposedContent ? 'Comparing Refinement' : 'Prompt Editor'}
             </span>
-            {proposedContent ? (
-              <div className="flex gap-2 w-full sm:w-auto">
-                <button
-                  onClick={() => {
-                    setProposedContent(null);
-                    setOptResult(null); // TASK 2: Zombie Result Fix
-                  }}
-                  className="flex-1 sm:flex-none bg-white/5 text-white px-4 py-2 rounded-xl text-[10px] font-bold uppercase hover:bg-white/10"
-                >
-                  Discard
-                </button>
-                <button
-                  onClick={() => navigate('/battle', { state: { contentA: content, contentB: proposedContent } })}
-                  className="flex-1 sm:flex-none bg-warning/10 text-warning px-4 py-2 rounded-xl text-[10px] font-bold uppercase hover:bg-warning/20 border border-warning/20 flex items-center justify-center gap-2"
-                >
-                  <span className="material-symbols-outlined text-[14px]">swords</span>
-                  Compare in Duel
-                </button>
-                <button
-                  onClick={() => { setContent(proposedContent); setProposedContent(null); addToast('Cambios aceptados.', 'success'); }}
-                  className="flex-1 sm:flex-none bg-primary text-white px-4 py-2 rounded-xl text-[10px] font-bold uppercase hover:bg-primary-dark"
-                >
-                  Accept Changes
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => handleOptimize(false)}
-                disabled={isBusy || !content.trim()}
-                className={`w-full sm:w-auto flex items-center justify-center gap-2 bg-primary/10 text-primary px-4 py-2 rounded-xl text-[10px] font-bold uppercase hover:bg-primary/20 transition-all ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                <span className="material-symbols-outlined text-sm">{isOptimizing ? 'sync' : 'auto_fix_high'}</span>
-                {isOptimizing ? 'Thinking...' : 'Metacognitive Refine'}
-              </button>
-            )}
           </div>
 
-          {/* METACOGNITION PANEL */}
-          {optResult && !proposedContent && (
-            <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4 animate-in fade-in zoom-in-95">
-              {/* Score Gauge */}
-              <div className="bg-surface-dark border border-white/10 rounded-3xl p-5 flex flex-col items-center justify-center shadow-lg">
-                <span className="text-[10px] font-black text-slate-500 uppercase mb-4">Quality Score</span>
-                <div className="relative size-24 flex items-center justify-center">
-                  <svg className="size-full -rotate-90">
-                    <circle cx="48" cy="48" r="40" fill="transparent" stroke="currentColor" strokeWidth="8" className="text-white/5" />
-                    <circle cx="48" cy="48" r="40" fill="transparent" stroke="currentColor" strokeWidth="8" strokeDasharray={`${optResult.metadata.criticScore * 2.51} 251`} className="text-primary transition-all duration-1000" />
-                  </svg>
-                  <span className="absolute text-xl font-black">{optResult.metadata.criticScore}</span>
-                </div>
-                <div className="mt-4 flex gap-2">
-                  {Object.entries(optResult.metadata.rubricChecks).map(([key, pass]) => (
-                    <span key={key} title={key} className={`size-2 rounded-full ${pass ? 'bg-success' : 'bg-danger'}`}></span>
-                  ))}
-                </div>
-              </div>
+          <div className="flex flex-col lg:flex-row gap-6 h-[70vh]">
+            {/* LEFT COLUMN: EDITOR */}
+            <div className={`flex flex-col transition-all duration-500 ${proposedContent ? 'lg:w-[45%]' : 'w-full'}`}>
+              <div className="flex-1 bg-surface-dark border border-white/5 rounded-2xl overflow-hidden shadow-2xl flex flex-col relative group">
+                <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary via-secondary to-primary opacity-0 bg-[length:200%_100%] transition-opacity duration-300 animate-shimmer" style={{ opacity: isOptimizing ? 1 : 0 }} />
 
-              {/* AI Reasoning Accordion */}
-              <div className="md:col-span-2 bg-surface-dark border border-white/10 rounded-3xl p-5 flex flex-col shadow-lg">
-                <button onClick={() => setShowReasoning(!showReasoning)} className="flex items-center justify-between w-full mb-3 text-left">
-                  <span className="text-[10px] font-black text-primary uppercase flex items-center gap-2">
-                    <span className="material-symbols-outlined text-sm">psychology</span>
-                    🧠 AI Reasoning
-                  </span>
-                  <span className={`material-symbols-outlined text-slate-500 transition-transform ${showReasoning ? 'rotate-180' : ''}`}>expand_more</span>
-                </button>
-                <div className={`overflow-hidden transition-all duration-300 ${showReasoning ? 'max-h-96' : 'max-h-0'}`}>
-                  <p className="text-xs text-slate-400 italic leading-relaxed border-t border-white/5 pt-3">
-                    {optResult.metadata.thinkingProcess}
-                  </p>
-                  <div className="mt-4 space-y-2">
-                    <span className="text-[9px] font-bold text-slate-600 uppercase">Changes Applied:</span>
-                    <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {optResult.metadata.changesMade.map((c, i) => (
-                        <li key={i} className="text-[10px] text-slate-300 flex items-start gap-2">
-                          <span className="text-primary mt-0.5">•</span>
-                          <span className="line-clamp-2">{c}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-                {!showReasoning && <p className="text-xs text-slate-500 line-clamp-2 italic">Click to expand AI logic and changes history...</p>}
-              </div>
-            </div>
-          )}
+                <div className="flex-1 bg-surface-dark border-r border-white/5 relative flex flex-col">
+                  {/* Editor Area */}
+                  <div className="flex-1 relative flex flex-col">
+                    {/* CONTEXT INPUT RESTORATION */}
+                    <div className="border-b border-white/5 bg-black/20">
+                      <button
+                        onClick={() => setShowContext(!showContext)}
+                        className="w-full flex items-center justify-between px-4 py-2 text-[10px] font-bold text-slate-500 hover:text-slate-300 uppercase tracking-widest transition-colors"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="material-symbols-outlined text-sm">menu_book</span>
+                          Global Context / Knowledge Base
+                        </span>
+                        <span className={`material-symbols-outlined text-sm transition-transform ${showContext ? 'rotate-180' : ''}`}>expand_more</span>
+                      </button>
 
-          {/* PROGRESS LOG */}
-          {isOptimizing && (
-            <div className="mb-4 bg-black/40 border border-primary/20 rounded-2xl p-4 font-mono text-[10px]">
-              <div className="flex items-center gap-2 mb-2 text-primary">
-                <span className="material-symbols-outlined text-sm animate-spin">sync</span>
-                <span className="font-black uppercase tracking-widest">Architect Log</span>
-              </div>
-              <div className="space-y-1 max-h-32 overflow-y-auto hide-scrollbar">
-                {progressLog.map((log, i) => (
-                  <div key={i} className="flex gap-2">
-                    <span className="text-slate-600">[{i + 1}]</span>
-                    <span className={i === progressLog.length - 1 ? 'text-primary' : 'text-slate-500'}>{log}</span>
-                  </div>
-                ))}
-                <div ref={logEndRef} />
-              </div>
-            </div>
-          )}
+                      {showContext && (
+                        <div className="p-2 animate-in slide-in-from-top-2">
+                          <textarea
+                            value={contextData}
+                            onChange={(e) => setContextData(e.target.value)}
+                            placeholder="Paste relevant background context, rules, or code snippets here to help the AI understand your specific domain..."
+                            className="w-full h-32 bg-black/40 border border-white/10 rounded-lg p-3 text-xs text-slate-300 focus:outline-none focus:border-primary/50 resize-y font-mono"
+                          />
+                        </div>
+                      )}
+                    </div>
 
-          {/* EDITOR AREA */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 min-h-[500px]">
-            {/* === QUICK WIN 4: REPLACING SIDE-BY-SIDE EDITOR WITH DIFF VIEW WHEN PROPOSED === */}
-            {proposedContent ? (
-              <div className="md:col-span-2 bg-surface-dark border border-white/5 rounded-3xl flex flex-col shadow-2xl overflow-hidden p-1 h-[600px]">
-                <DiffView original={content} modified={proposedContent} />
-              </div>
-            ) : (
-              // NORMAL EDITOR MODE (with Concurrency Lock)
-              <div className={`bg-surface-dark border border-white/5 rounded-3xl flex shadow-2xl transition-all relative md:col-span-2`}>
-                {/* === QUICK WIN 1: LOCK UI OVERLAY === */}
-                {isOptimizing && (
-                  <div className="absolute inset-0 z-10 bg-black/60 backdrop-blur-sm rounded-3xl flex flex-col items-center justify-center animate-in fade-in transition-all">
-                    <div className="bg-surface-dark border border-white/10 p-6 rounded-2xl shadow-2xl flex flex-col items-center gap-3">
-                      <span className="material-symbols-outlined text-primary text-3xl animate-pulse">neurology</span>
-                      <p className="text-xs font-black uppercase text-white tracking-widest">Architect is thinking...</p>
-                      <p className="text-[10px] text-slate-400">Please do not edit while optimization is in progress.</p>
+                    <div className="flex-1 relative">
+                      <RichPromptEditor
+                        value={content}
+                        onChange={setContent}
+                        disabled={isBusy}
+                      />
+                    </div>
+
+                    {/* Action Bar */}
+                    <div className="p-4 border-t border-white/5 flex flex-col gap-3 bg-background-dark/50 backdrop-blur-sm z-20">
+
+                      {/* THINKING INDICATOR */}
+                      {isOptimizing && progressLog.length > 0 && (
+                        <div className="mb-2 flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2">
+                          <div className="relative flex h-3 w-3">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-3 w-3 bg-primary"></span>
+                          </div>
+                          <span className="text-xs font-mono text-primary animate-pulse">
+                            {progressLog[progressLog.length - 1].replace(/^\[.*?\]\s*/, '')}
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="flex gap-3">
+                        {isOptimizing ? (
+                          <button
+                            onClick={cancelOptimization}
+                            className="flex-1 bg-danger/10 border border-danger/20 text-danger font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2 hover:bg-danger/20"
+                          >
+                            <span className="material-symbols-outlined">cancel</span>
+                            <span>Cancel Operation</span>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleOptimize(false)}
+                            className={`flex-1 bg-gradient-to-r from-primary to-secondary hover:brightness-110 text-white font-bold py-3 rounded-xl transition-all shadow-[0_0_20px_rgba(79,70,229,0.3)] flex items-center justify-center gap-2 group/btn ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            disabled={isBusy}
+                          >
+                            <span className="material-symbols-outlined group-hover/btn:scale-110 transition-transform">auto_awesome</span>
+                            <span>Metacognitive Refine</span>
+                          </button>
+                        )}
+                        <button
+                          onClick={handleEvaluate}
+                          disabled={isBusy || !content.trim()}
+                          className={`px-4 bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 border border-purple-500/30 rounded-xl font-bold transition-all flex items-center gap-2 ${isBusy ? 'opacity-50' : ''}`}
+                        >
+                          {isEvaluating ? <span className="material-symbols-outlined animate-spin">sync</span> : <span className="material-symbols-outlined">analytics</span>}
+                          Evaluate
+                        </button>
+                      </div>
                     </div>
                   </div>
-                )}
-
-                <div className="w-10 bg-black/20 border-r border-white/5 flex flex-col items-center py-5 select-none shrink-0">
-                  {Array.from({ length: 25 }).map((_, i) => <span key={i} className="text-[9px] text-slate-700 font-mono mb-2">{i + 1}</span>)}
                 </div>
-                <textarea
-                  className={`flex-1 bg-transparent p-6 text-sm font-mono leading-relaxed outline-none resize-none text-slate-200 focus-visible:ring-1 focus-visible:ring-primary/30 transition-opacity duration-300 ${isOptimizing ? 'opacity-30' : 'opacity-100'}`}
-                  value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                  spellCheck={false}
-                  readOnly={isOptimizing} // === QUICK WIN 1: LOCK ===
-                />
+              </div>
+            </div>
+
+            {/* RIGHT COLUMN: COMPARISON & RESULTS */}
+            {proposedContent && optResult && (
+              <div className="flex-1 flex flex-col gap-4 animate-in slide-in-from-right-4 fade-in duration-500 min-h-0">
+                {/* ... Existing Result Views (Assuming DiffView is used here) ... */}
+                <div className="flex-1 bg-surface-dark border border-white/5 rounded-2xl overflow-hidden flex flex-col shadow-2xl text-left">
+                  <div className="bg-black/20 p-3 border-b border-white/5 flex justify-between items-center">
+                    <span className="text-xs font-bold text-success flex items-center gap-2">
+                      <span className="material-symbols-outlined">check_circle</span>
+                      Optimization Success
+                    </span>
+                    <div className="flex gap-2">
+                      <button onClick={() => { setContent(proposedContent); setProposedContent(null); }} className="text-[10px] font-bold bg-success/10 text-success px-3 py-1 rounded-full hover:bg-success/20 transition-colors uppercase">Accept</button>
+                      <button onClick={() => setProposedContent(null)} className="text-[10px] font-bold bg-white/5 text-slate-400 px-3 py-1 rounded-full hover:bg-white/10 transition-colors uppercase">Dismiss</button>
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-hidden relative">
+                    <DiffView original={content} modified={proposedContent} />
+                  </div>
+
+                  {/* Reasoning Panel */}
+                  <div className="border-t border-white/5 bg-black/20 text-left">
+                    <button
+                      onClick={() => setShowReasoning(!showReasoning)}
+                      className="w-full p-3 flex items-center justify-between text-xs font-bold text-slate-500 hover:text-slate-300 transition-colors uppercase tracking-widest"
+                    >
+                      <span>AI REASONING & LOGIC</span>
+                      <span className={`material-symbols-outlined transition-transform ${showReasoning ? 'rotate-180' : ''}`}>expand_more</span>
+                    </button>
+                    {showReasoning && optResult?.metadata && (
+                      <div className="p-4 bg-black/40 border-t border-white/5 text-xs text-slate-400 font-mono space-y-2 animate-in slide-in-from-top-2">
+                        {optResult.metadata.thinkingProcess && (
+                          <div className="mb-4 p-3 bg-purple-900/10 border border-purple-500/20 rounded-lg text-purple-200/80">
+                            <strong className="block text-purple-400 mb-1 uppercase text-[10px]">Chain of Thought:</strong>
+                            {optResult.metadata.thinking_process}
+                          </div>
+                        )}
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <strong className="block text-slate-500 mb-1">SELECTED FRAMEWORK</strong>
+                            <span className="text-primary">{optResult.metadata.thinkingProcess ? "Dynamic Chain-of-Thought" : "Standard"}</span>
+                          </div>
+                          <div>
+                            <strong className="block text-slate-500 mb-1">CRITIC SCORE</strong>
+                            <span className={optResult.metadata.criticScore > 80 ? 'text-success' : 'text-warning'}>{optResult.metadata.criticScore}/100</span>
+                          </div>
+                        </div>
+                        <div>
+                          <strong className="block text-slate-500 mb-1">CHANGES APPLIED</strong>
+                          <ul className="list-disc pl-4 space-y-1">
+                            {(optResult.metadata.changesMade || []).map((c, i) => <li key={i}>{c}</li>)}
+                          </ul>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </div>
 
-          {/* Global Context Panel */}
-          <div className="mt-6 mb-20 bg-surface-dark border border-white/5 rounded-3xl p-6 shadow-xl">
-            <h3 className="text-[10px] font-black text-slate-500 uppercase mb-4 tracking-widest flex items-center gap-2">
-              <span className="material-symbols-outlined text-sm">globe</span>
-              Global Context
-            </h3>
-            <div className="relative">
-              <textarea
-                value={contextData}
-                onChange={(e) => setContextData(e.target.value)}
-                className="w-full h-32 bg-black/40 border border-white/5 rounded-2xl p-4 text-xs font-mono text-slate-300 outline-none focus:border-primary/40 resize-none"
-                placeholder="Paste context, documentation, or background info here to guide the Architect..."
-                disabled={isBusy}
-              />
-              <div className="absolute bottom-4 right-4 flex gap-2">
-                <label className={`cursor-pointer bg-white/5 hover:bg-white/10 text-slate-400 p-2 rounded-lg transition-colors ${isBusy ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`} title="Upload Text/MD File">
-                  <input type="file" className="hidden" accept=".txt,.md,.json,.js,.ts" onChange={async (e) => {
-                    if (isBusy) return;
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    const text = await file.text();
-                    setContextData(prev => prev ? prev + '\n\n--- FILE: ' + file.name + ' ---\n' + text : text);
-                    addToast('Context appended from file', 'success');
-                  }} disabled={isBusy} />
-                  <span className="material-symbols-outlined text-[16px]">upload_file</span>
-                </label>
-                {contextData && (
-                  <button
-                    onClick={() => setContextData('')}
-                    className={`bg-danger/10 text-danger p-2 rounded-lg hover:bg-danger/20 transition-colors ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    title="Clear Context"
-                    disabled={isBusy}
-                  >
-                    <span className="material-symbols-outlined text-[16px]">delete_sweep</span>
-                  </button>
-                )}
-              </div>
+          {/* Evaluation Dashboard */}
+          {evalResult && (
+            <div className="mt-8 animate-in slide-in-from-bottom-4">
+              <EvaluationDashboard result={evalResult} />
             </div>
-          </div>
+          )}
+
+          {/* Console / Test Panel */}
+          {consoleOpen && (
+            <DebuggerConsole
+              isOpen={consoleOpen}
+              onClose={() => setConsoleOpen(false)}
+              logs={progressLog}
+              testResult={testResult}
+              vars={vars}
+              setVars={setVars}
+              onRunTest={handleTest}
+              isBusy={isBusy}
+            />
+          )}
+
         </div>
       </main>
 
-      <SaveVersionModal isOpen={showSaveModal} onClose={() => setShowSaveModal(false)} onSave={() => { onSave(commitMessage, userRating || undefined); setShowSaveModal(false); }} commitMessage={commitMessage} setCommitMessage={setCommitMessage} userRating={userRating} setUserRating={setUserRating} />
-      <DebuggerConsole isOpen={consoleOpen} setIsOpen={setConsoleOpen} isTesting={isTesting} testResult={testResult} variables={vars} setVariables={setVars} onRunTest={handleTest} isBusy={isBusy} />
+      {/* Save Modal */}
+      {showSaveModal && (
+        <SaveVersionModal
+          isOpen={showSaveModal}
+          onClose={() => setShowSaveModal(false)}
+          onSave={(msg, rating) => {
+            onSave(msg, rating);
+            setShowSaveModal(false);
+          }}
+          initialMessage={commitMessage}
+        />
+      )}
     </div>
   );
 };

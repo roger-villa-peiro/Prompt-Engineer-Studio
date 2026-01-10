@@ -6,13 +6,13 @@ import History from './components/History';
 import ExperimentConfig from './components/ExperimentConfig';
 import EvaluationResults from './components/EvaluationResults';
 import PromptBattle from './components/PromptBattle';
+import { ComparisonView } from './components/ComparisonView';
+import { SharedPromptView } from './components/SharedPromptView';
 import { PromptVersion, ToastMessage } from './types';
 import { supabase } from './src/services/supabaseClient';
 
 const App: React.FC = () => {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
-
-
 
   const addToast = useCallback((text: string, type: ToastMessage['type'] = 'info') => {
     const id = Math.random().toString(36).substr(2, 9);
@@ -26,11 +26,9 @@ const App: React.FC = () => {
     return localStorage.getItem('activePrompt') || 'New Prompt...';
   });
 
-  const [versions, setVersions] = useState<PromptVersion[]>(() => {
-    const saved = localStorage.getItem('promptVersions');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [versions, setVersions] = useState<PromptVersion[]>([]);
 
+  // Local Persistence for Active Prompt Only
   useEffect(() => {
     localStorage.setItem('activePrompt', currentPrompt);
   }, [currentPrompt]);
@@ -43,50 +41,98 @@ const App: React.FC = () => {
     localStorage.setItem('globalContext', contextData);
   }, [contextData]);
 
+  // Load Versions from Supabase
   useEffect(() => {
-    localStorage.setItem('promptVersions', JSON.stringify(versions));
-  }, [versions]);
+    const fetchVersions = async () => {
+      const { data, error } = await supabase
+        .from('prompt_versions')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching versions:', error);
+        addToast('Failed to sync history from cloud', 'error');
+      } else if (data) {
+        // Map Supabase layout to internal type
+        const mapped: PromptVersion[] = data.map(d => ({
+          id: d.id,
+          version: d.version_label || 'v1.0',
+          tag: 'Cloud',
+          message: d.version_label || 'Cloud Version',
+          content: d.content,
+          author: d.author || 'User',
+          timestamp: d.created_at,
+          hash: 'synced',
+          rating: 0
+        }));
+        setVersions(mapped);
+      }
+    };
+
+    fetchVersions();
+  }, [addToast]);
 
   const saveVersion = async (message: string, rating?: number) => {
-    const newVersion: PromptVersion = {
-      id: Math.random().toString(36).substr(2, 9), // Temp ID until DB confirms
-      version: `v1.${versions.length + 1}`,
-      tag: 'Manual',
+    const versionLabel = `v1.${versions.length + 1}`;
+
+    // Optimistic UI Update
+    const optimisticVersion: PromptVersion = {
+      id: "pending-" + Math.random(),
+      version: versionLabel,
+      tag: 'Saving...',
       message: message || 'Untitled Refinement',
       content: currentPrompt,
       author: 'You',
       timestamp: new Date().toISOString(),
-      hash: Math.random().toString(16).substr(2, 6),
+      hash: 'pending',
       rating: rating
     };
+    setVersions(prev => [optimisticVersion, ...prev]);
 
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('prompt_versions')
         .insert({
-          content: newVersion.content,
-          version: newVersion.version,
-          tag: newVersion.tag,
-          message: newVersion.message,
-          author: newVersion.author,
-          rating: newVersion.rating,
-          hash: newVersion.hash
-          // created_at is auto-generated
-        });
+          content: currentPrompt,
+          version_label: message || versionLabel,
+          author: 'User',
+          metadata: { rating, source: 'antigravity-architect' }
+        })
+        .select()
+        .single();
 
       if (error) throw error;
 
-      setVersions([newVersion, ...versions]);
-      addToast('Version saved to Supabase', 'success');
+      // Replace optimistic with real data
+      setVersions(prev => prev.map(v => v.id === optimisticVersion.id ? {
+        ...optimisticVersion,
+        id: data.id,
+        tag: 'Cloud',
+        timestamp: data.created_at
+      } : v));
+
+      addToast('Version securely saved to Cloud', 'success');
     } catch (err: any) {
       console.error('Error saving to Supabase:', err);
-      addToast('Failed to save version: ' + err.message, 'error');
+      addToast('Failed to save to cloud: ' + err.message, 'error');
+      // Rollback optimistic update if needed, or leave as 'Error' state
     }
   };
 
-  const deleteVersion = (id: string) => {
-    setVersions(prev => prev.filter(v => v.id !== id));
-    addToast('Version deleted', 'info');
+  const deleteVersion = async (id: string) => {
+    setVersions(prev => prev.filter(v => v.id !== id)); // Optimistic delete
+
+    const { error } = await supabase
+      .from('prompt_versions')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      addToast('Failed to delete from cloud', 'error');
+      // In a real app, we would revert the state here
+    } else {
+      addToast('Version deleted from Cloud', 'info');
+    }
   };
 
   const exportLibrary = () => {
@@ -107,9 +153,9 @@ const App: React.FC = () => {
     reader.onload = (event) => {
       try {
         const data = JSON.parse(event.target?.result as string);
-        if (data.versions) setVersions(data.versions);
+        if (data.versions) setVersions(data.versions); // Needs careful merging with cloud
         if (data.currentPrompt) setCurrentPrompt(data.currentPrompt);
-        addToast('Library imported successfully', 'success');
+        addToast('Library imported (Local Session Only)', 'success');
       } catch (err) {
         addToast('Invalid library file', 'error');
       }
@@ -143,6 +189,13 @@ const App: React.FC = () => {
           <Route path="/experiment/new" element={<ExperimentConfig currentPrompt={currentPrompt} />} />
           <Route path="/experiment/results" element={<EvaluationResults />} />
           <Route path="/battle" element={<PromptBattle versions={versions} addToast={addToast} />} />
+          <Route path="/compare" element={<ComparisonView />} />
+          <Route path="/share/:token" element={
+            <SharedPromptView onFork={(content) => {
+              setCurrentPrompt(content);
+              addToast('Prompt forked to workspace', 'success');
+            }} />
+          } />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
 

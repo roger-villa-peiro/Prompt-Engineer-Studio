@@ -2,7 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { PromptVersion, BattleResult } from '../types';
-import { battlePrompts, runPrompt } from '../services/geminiService';
+import { runPrompt } from '../services/geminiService';
+import { runConsensusBattle } from '../services/judgeService';
 import { extractVariables } from '../utils/promptUtils';
 
 interface Props {
@@ -46,7 +47,7 @@ const PromptBattle: React.FC<Props> = ({ versions, addToast }) => {
       setOutputs({ A: outA, B: outB });
 
       const contextStr = JSON.stringify(varValues);
-      const audit = await battlePrompts(contentA, contentB, contextStr);
+      const audit = await runConsensusBattle(contentA, contentB, contextStr);
       setResult(audit);
       addToast("Audit completed successfully", "success");
     } catch (error) {
@@ -165,7 +166,7 @@ const PromptBattle: React.FC<Props> = ({ versions, addToast }) => {
                   {result.error ? 'report' : 'verified_user'}
                 </span>
                 <div>
-                  <h3 className="text-sm font-black uppercase tracking-widest">Structural Audit Verdict</h3>
+                  <h3 className="text-sm font-black uppercase tracking-widest">Consensus Verdict (Dual-Judge)</h3>
                   <p className="text-[10px] text-slate-500">Impartial Quality Analysis</p>
                 </div>
               </div>

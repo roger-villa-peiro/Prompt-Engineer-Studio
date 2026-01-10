@@ -1,83 +1,66 @@
-# Prompt Engineer Studio
-![Status](https://img.shields.io/badge/Status-Production--Ready-success)
-![Version](https://img.shields.io/badge/Version-1.0-blue)
+# Antigravity Architect 🚀 (v4.0)
 
-**Prompt Engineer Studio** es una plataforma integral diseñada para la ingeniería de prompts sistemática, el control de versiones y la evaluación automatizada utilizando los modelos más avanzados de Google Gemini AI.
+> **The Professional IDE for Prompt Engineering**
+> *Craft, Refine, and Evaluate LLM Prompts with Cognitive Intelligence.*
 
-## 🚀 Características Principales
+**Antigravity Architect** (formerly Prompt Engineer Studio) is a production-grade environment designed for Prompt Engineers who need more than a simple chat interface. It combines the utility of a code editor with the intelligence of an LLM evaluation pipeline.
 
-- **Refinamiento Estructural:** Motor de optimización que transforma prompts básicos en estructuras modulares (Persona, Tarea, Contexto, Restricciones).
-- **Gestión de Variables Dinámicas:** Detección automática y sustitución de placeholders `{{variable}}` con validación estricta de campos vacíos.
-- **Battle Arena (Comparativa):** Auditoría imparcial impulsada por IA para comparar el rendimiento entre dos versiones de un prompt.
-- **Benchmarking Engine:** Ejecución de "Golden Datasets" con métricas de fidelidad, relevancia y coherencia.
-- **Integración Nativa con el Sistema de Archivos:** Explorador de archivos real utilizando la *File System Access API* para trabajar directamente con directorios locales.
-- **Control de Versiones (Git-style):** Sistema de "commits" locales con metadatos, hashes de integridad y valoraciones de confianza.
+![Status](https://img.shields.io/badge/Status-Production_Ready-success) ![Stack](https://img.shields.io/badge/Stack-React_|_Supabase_|_Vite-blue)
 
-## 🛠️ Instalación y Configuración
+## ✨ key Features
 
-### Requisitos Previos
-- Node.js (v18 o superior)
-- Una API Key de [Google AI Studio](https://aistudio.google.com/)
+### ⚡ Pro Editor & Workflow
+- **Rich Prompt Editor**: Real-time **Token Counter** and **Variable Detector** (`{{variable}}`) HUD.
+- **Template Library**: Bootstrap projects with industry-standard patterns ("Senior Code Architect", "Data Extractor").
+- **Smart Export**: Generate production-ready **Python (OpenAI)** and **Node.js** snippets instantly.
 
-### Pasos de Instalación
-1. Clonar el repositorio.
-2. Instalar dependencias:
+### 🧠 Cognitive Engine
+- **Metacognitive Refinement**: The AI doesn't just rewrite; it "thinks" about your prompt using a visible reasoning chain before optimizing it.
+- **Evaluation Dashboard**: LLM-as-a-Judge analysis of prompt outputs (Accuracy, Styles, Safety).
+- **A/B Battle Arena**: Compare two models side-by-side.
+
+### 🤝 Unity & Cloud
+- **Cloud Sync (Supabase)**: Your history and versions persist across sessions.
+- **Version Control**: Auto-save with diff views (Original vs. Refined).
+- **Public Sharing**: Generate read-only links to share specific prompt versions with your team.
+
+## 🛠️ Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/your-org/antigravity-architect.git
+   cd antigravity-architect
+   ```
+
+2. **Install Dependencies**
    ```bash
    npm install
    ```
-3. Configurar variables de entorno:
-   Cree un archivo `.env` en la raíz del proyecto y añada su clave:
+
+3. **Configure Environment**
+   Create a `.env` file based on `.env.example`:
    ```env
-   API_KEY=tu_gemini_api_key_aqui
+   VITE_SUPABASE_URL=your_supabase_url
+   VITE_SUPABASE_ANON_KEY=your_supabase_key
    ```
-4. Iniciar el entorno de desarrollo:
+   *(Note: The Gemini API Key is entered in the UI for security)*
+
+4. **Run Locally**
    ```bash
    npm run dev
    ```
 
-## 🏗️ Decisiones de Arquitectura
+## 📐 Architecture
 
-El proyecto ha sido refactorizado bajo estándares de ingeniería de software de "Tier-1" para garantizar la escalabilidad y mantenibilidad:
+- **Frontend**: React 18 + Vite + TailwindCSS
+- **State**: React Hooks + LocalStorage + Supabase
+- **Visuals**: Glassmorphism UI (Surface Dark theme)
+- **Icons**: Google Material Symbols
 
-1. **Memoización Estratégica (`React.memo` & `useMemo`):**
-   - **Contexto:** El editor de prompts es un componente de alta frecuencia de actualización. Sin optimización, el árbol de archivos se procesaba en cada pulsación de tecla, causando un desperdicio de ciclos de CPU de $O(n)$.
-   - **Implementación:** Se aisló el componente `FileTree` y se implementó un sistema de extracción de variables con *debounce* para reducir el tiempo de renderizado en un 85%.
-
-2. **Tipado Estricto de FileSystem API:**
-   - **Contexto:** Las interacciones con el navegador suelen ser puntos ciegos de errores asíncronos.
-   - **Implementación:** Se eliminó el uso de `any` y `@ts-ignore`, definiendo interfaces estrictas para `FileSystemHandle` y sus derivados, garantizando la seguridad de tipos en la recursividad del explorador.
-
-3. **Accesibilidad Semántica (a11y):**
-   - **Contexto:** Las herramientas de productividad deben ser inclusivas y navegables por teclado.
-   - **Implementación:** Se migraron todos los elementos interactivos a botones nativos con roles ARIA (`tree`, `treeitem`, `dialog`), cumpliendo con los estándares **WCAG 2.1**.
-
-4. **Defensa de Inyección XML:**
-   - **Contexto:** Al usar IA para optimizar prompts, el input del usuario puede intentar realizar "jailbreaks".
-   - **Implementación:** Implementación de `escapeXML` en la capa de servicio para sanitizar entradas antes de ser procesadas por el modelo `gemini-3-pro-preview`.
-
-## 📂 Estructura del Proyecto
-
-```text
-root
-├── components/          # Componentes de UI modulares y memoizados
-│   ├── FileTree.tsx     # Explorador de archivos optimizado
-│   ├── PromptEditor.tsx # Núcleo del editor con Diff View
-│   └── PromptBattle.tsx # Arena de comparación técnica
-├── services/            # Lógica de negocio e integración con Gemini API
-│   ├── geminiService.ts # Gestión de llamadas, validación y errores
-│   └── fileService.ts   # Interfaz con File System Access API
-├── utils/               # Funciones auxiliares y lógica de Regex
-├── config/              # Configuración de modelos de IA (Flash/Pro)
-├── types.ts             # Definiciones de interfaces globales
-└── App.tsx              # Enrutamiento y gestión de estado global
-```
-
-## 🤝 Contribución
-
-Para mantener la integridad de la v1.0, todas las contribuciones deben:
-- Mantener un **100% de cobertura de tipos** (evitar `any`).
-- No introducir re-renders en el editor principal sin memoización.
-- Proporcionar etiquetas ARIA para nuevos elementos de interfaz.
+## 🚀 Roadmap (Future)
+- [ ] Real-time Multi-user Collaboration (WebSockets)
+- [ ] Custom Model Fine-tuning UI
+- [ ] Team Workspaces
 
 ---
-**Desarrollado para ingenieros de prompts por ingenieros de software.**
+*Built with ❤️ by the Antigravity Team*

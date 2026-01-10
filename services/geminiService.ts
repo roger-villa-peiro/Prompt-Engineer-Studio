@@ -35,13 +35,15 @@ export async function callGemini({
   systemInstruction,
   jsonMode = false,
   model = AI_CONFIG.MODEL_ID,
-  temperature = AI_CONFIG.GENERATION_CONFIG.temperature
+  temperature = AI_CONFIG.GENERATION_CONFIG.temperature,
+  signal
 }: {
   prompt: string;
   systemInstruction?: string;
   jsonMode?: boolean;
   model?: string;
   temperature?: number;
+  signal?: AbortSignal;
 }) {
   const apiKey = process.env.API_KEY;
   if (!apiKey) throw new Error("PROD_FATAL: API_KEY is missing from execution environment.");
@@ -49,16 +51,16 @@ export async function callGemini({
   // Initialize client dynamically per request to ensure up-to-date config
   const ai = new GoogleGenAI({ apiKey });
 
+  // Use the correct SDK method for @google/genai
   const response = await ai.models.generateContent({
     model: model,
-    contents: prompt,
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
     config: {
       systemInstruction,
       responseMimeType: jsonMode ? "application/json" : "text/plain",
       temperature,
       topP: AI_CONFIG.GENERATION_CONFIG.topP,
       topK: AI_CONFIG.GENERATION_CONFIG.topK,
-      // Safety Settings: BLOCK_ONLY_HIGH to minimize false positives during debugging
       safetySettings: [
         { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
         { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
@@ -67,6 +69,11 @@ export async function callGemini({
       ]
     },
   });
+
+  // Manual abort check since SDK might not support signal propagation deep down yet
+  if (signal?.aborted) {
+    throw new Error('ABORTED');
+  }
 
   return response.text || "";
 }
@@ -154,12 +161,13 @@ async function withBackoff<T>(fn: () => Promise<T>, onRetry: (msg: string) => vo
 export class PromptOptimizationService {
   private lastValidResult: OptimizationResult | null = null;
 
-  async assessInputClarity(input: string, history: ChatMessage[] = [], globalContext: string = ''): Promise<InterviewerResponse> {
+  async assessInputClarity(input: string, history: ChatMessage[] = [], globalContext: string = '', signal?: AbortSignal): Promise<InterviewerResponse> {
     const historyCtx = history.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
     const responseText = await withBackoff(
       () => callGemini({
-        prompt: `GLOBAL CONTEXT:\n${globalContext || "None provided."}\n\nCONTEXT HISTORY:\n${historyCtx}\n\nCURRENT INPUT: ${input}\n\nAnalyze if we have enough detail. If the GLOBAL CONTEXT provides the necessary code or information referenced in the INPUT, or if this input is an answer to a previous question, consider it as READY_TO_OPTIMIZE.\n\nRESPONSE FORMAT (JSON):\n{\n  "status": "READY_TO_OPTIMIZE" | "NEEDS_CLARIFICATION",\n  "clarification_question": "Only if status is NEEDS_CLARIFICATION"\n}`,
-        jsonMode: true
+        prompt: `GLOBAL CONTEXT:\n${globalContext || "None provided."}\n\nCONTEXT HISTORY:\n${historyCtx}\n\nCURRENT INPUT: ${input}\n\nAnalyze if we have enough detail. If the GLOBAL CONTEXT provides the necessary code or information referenced in the INPUT, or if this input is an answer to a previous question, consider it as READY_TO_OPTIMIZE.\n\nRESPONSE FORMAT (JSON):\n{\n  "status": "READY_TO_OPTIMIZE" | "NEEDS_CLARIFICATION",\n  "clarification_question": "Solo si el estado es NEEDS_CLARIFICATION. Pregunta aclaratoria en ESPAÑOL."\n}`,
+        jsonMode: true,
+        signal
       }),
       () => { }
     );
@@ -171,7 +179,8 @@ export class PromptOptimizationService {
     history: ChatMessage[] = [],
     onProgress?: (stage: string, detail: string) => void,
     globalContext: string = '',
-    attempts: number = 0
+    attempts: number = 0,
+    signal?: AbortSignal // Add signal parameter
   ): Promise<OptimizationResult> {
     try {
       const memoryContext = MemoryService.getMemoryString();
@@ -182,7 +191,8 @@ export class PromptOptimizationService {
         () => callGemini({
           prompt: `CONVERSATION HISTORY:\n${historyCtx}\n\nUSER INTENT:\n${originalInput}`,
           systemInstruction: GET_ARCHITECT_PROMPT("First draft or refinement phase.", memoryContext, globalContext),
-          jsonMode: true
+          jsonMode: true,
+          signal
         }),
         (msg) => onProgress?.('WAITING', msg)
       );
@@ -194,7 +204,8 @@ export class PromptOptimizationService {
         () => callGemini({
           prompt: `PROMPT:\n${archData.refined_prompt}`,
           systemInstruction: CRITIC_PROMPT,
-          jsonMode: true
+          jsonMode: true,
+          signal
         }),
         (msg) => onProgress?.('WAITING', msg)
       );
@@ -219,7 +230,7 @@ export class PromptOptimizationService {
       }
 
       onProgress?.('REFINING', `Score: ${criticData.clarity_score}. Mejorando...`);
-      return this.optimizePromptFlow(originalInput, history, onProgress, globalContext, attempts + 1);
+      return this.optimizePromptFlow(originalInput, history, onProgress, globalContext, attempts + 1, signal);
 
     } catch (err) {
       if (this.lastValidResult) {
@@ -234,38 +245,38 @@ export class PromptOptimizationService {
 /**
  * PUBLIC ADAPTERS
  */
-export async function optimizePrompt(
-  content: string,
+export const optimizePrompt = async (
+  currentPrompt: string,
   history: ChatMessage[] = [],
   onProgress?: (stage: string, detail: string) => void,
-  globalContext: string = '',
-  options?: { skipInterviewer?: boolean }
-): Promise<OptimizationResult | InterviewerResponse> {
+  contextData?: string,
+  options?: { skipInterviewer?: boolean; model?: string; signal?: AbortSignal }
+): Promise<OptimizationResult | InterviewerResponse> => {
   const service = new PromptOptimizationService();
   onProgress?.('START', 'Iniciando pipeline cognitivo...');
 
   if (!options?.skipInterviewer) {
-    const clarity = await service.assessInputClarity(content, history, globalContext);
+    const clarity = await service.assessInputClarity(currentPrompt, history, contextData || '', options?.signal);
     if (clarity.status === "NEEDS_CLARIFICATION") return clarity;
   }
 
-  return await service.optimizePromptFlow(content, history, onProgress, globalContext);
+  return await service.optimizePromptFlow(currentPrompt, history, onProgress, contextData || '', 0, options?.signal);
 }
 
-export async function runPrompt(prompt: string, variables: Record<string, string>): Promise<string> {
+export async function runPrompt(prompt: string, variables: Record<string, string>, signal?: AbortSignal): Promise<string> {
   let finalPrompt = prompt;
   for (const [key, value] of Object.entries(variables)) {
     const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     finalPrompt = finalPrompt.replace(new RegExp(`{{\\s*${escapedKey}\\s*}}`, "g"), value || "");
   }
-  return await callGemini({ prompt: finalPrompt });
+  return await callGemini({ prompt: finalPrompt, signal });
 }
 
 export async function evaluateResponse(input: string, actual: string, expected: string): Promise<any> {
   const responseText = await withBackoff(
     () => callGemini({
       prompt: `CONTEXT:\nInput: ${input}\nActual Output: ${actual}\nExpected: ${expected}`,
-      systemInstruction: "You are a professional AI evaluation judge. Analyze faithfulness, relevance, and coherence. Return JSON.",
+      systemInstruction: "You are a professional AI evaluation judge. Analyze faithfulness, relevance, and coherence. Return JSON. The analysis/reasoning MUST BE IN SPANISH.",
       jsonMode: true
     }),
     () => { }

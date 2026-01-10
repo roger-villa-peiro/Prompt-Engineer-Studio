@@ -1,7 +1,8 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PromptVersion } from '../types';
+import { ShareService } from '../services/shareService';
 
 interface Props {
   versions: PromptVersion[];
@@ -11,6 +12,23 @@ interface Props {
 
 const History: React.FC<Props> = ({ versions, onRevert, onDelete }) => {
   const navigate = useNavigate();
+  const [sharingId, setSharingId] = useState<string | null>(null);
+  const [sharedLink, setSharedLink] = useState<string | null>(null);
+
+  const handleShare = async (id: string) => {
+    setSharingId(id);
+    try {
+      const token = await ShareService.publishVersion(id);
+      const link = `${window.location.origin}/#/share/${token}`;
+      await navigator.clipboard.writeText(link);
+      setSharedLink(link);
+      setTimeout(() => setSharedLink(null), 3000); // Reset after 3s
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSharingId(null);
+    }
+  };
 
   const getScoreColor = (score: number) => {
     if (score <= 3) return 'text-danger bg-danger/10 border-danger/20';
@@ -60,7 +78,16 @@ const History: React.FC<Props> = ({ versions, onRevert, onDelete }) => {
                   <p className="text-xs text-slate-400 mb-4 line-clamp-2 italic">"{v.content}"</p>
                   <div className="flex gap-2">
                     <button onClick={() => { onRevert(v); navigate('/'); }} className="flex-1 py-2 bg-primary/10 text-primary text-[10px] font-bold rounded-lg hover:bg-primary/20">Restore</button>
-                    <button onClick={() => navigator.clipboard.writeText(v.id)} className="flex-1 py-2 bg-white/5 text-slate-400 text-[10px] font-bold rounded-lg">Copy ID</button>
+
+                    {/* Share Button */}
+                    <button
+                      onClick={() => handleShare(v.id)}
+                      className={`flex-1 py-2 ${sharedLink && sharingId === v.id ? 'bg-success/10 text-success' : 'bg-cyan-500/10 text-cyan-400'} text-[10px] font-bold rounded-lg transition-all`}
+                      disabled={sharingId === v.id}
+                    >
+                      {sharingId === v.id ? 'Generating...' : (sharedLink && sharingId === v.id ? 'Copied Link!' : 'Share Link')}
+                    </button>
+
                     <button
                       onClick={() => {
                         if (window.confirm('Are you sure you want to delete this version?')) {
