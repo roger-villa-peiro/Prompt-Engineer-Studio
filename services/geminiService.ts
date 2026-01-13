@@ -2,7 +2,7 @@ import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { z } from "zod";
 import { AI_CONFIG } from "../config/aiConfig";
 import { GET_ARCHITECT_PROMPT, CRITIC_PROMPT } from "../config/systemPrompts";
-import { BattleResult } from "../types";
+import { BattleResult, Attachment } from "../types";
 import { MemoryService } from "./memoryService";
 /**
  * NEW RICH RETURN TYPE: OptimizationResult
@@ -36,6 +36,7 @@ export async function callGemini({
   jsonMode = false,
   model = AI_CONFIG.MODEL_ID,
   temperature = AI_CONFIG.GENERATION_CONFIG.temperature,
+  attachments,
   signal
 }: {
   prompt: string;
@@ -43,6 +44,7 @@ export async function callGemini({
   jsonMode?: boolean;
   model?: string;
   temperature?: number;
+  attachments?: Attachment[];
   signal?: AbortSignal;
 }) {
   const apiKey = process.env.API_KEY;
@@ -51,10 +53,23 @@ export async function callGemini({
   // Initialize client dynamically per request to ensure up-to-date config
   const ai = new GoogleGenAI({ apiKey });
 
+  const parts: any[] = [{ text: prompt }];
+
+  if (attachments && attachments.length > 0) {
+    attachments.forEach(att => {
+      parts.push({
+        inlineData: {
+          mimeType: att.type,
+          data: att.data
+        }
+      });
+    });
+  }
+
   // Use the correct SDK method for @google/genai
   const response = await ai.models.generateContent({
     model: model,
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    contents: [{ role: 'user', parts }],
     config: {
       systemInstruction,
       responseMimeType: jsonMode ? "application/json" : "text/plain",
@@ -161,12 +176,13 @@ async function withBackoff<T>(fn: () => Promise<T>, onRetry: (msg: string) => vo
 export class PromptOptimizationService {
   private lastValidResult: OptimizationResult | null = null;
 
-  async assessInputClarity(input: string, history: ChatMessage[] = [], globalContext: string = '', signal?: AbortSignal): Promise<InterviewerResponse> {
+  async assessInputClarity(input: string, history: ChatMessage[] = [], globalContext: string = '', attachments: Attachment[] = [], signal?: AbortSignal): Promise<InterviewerResponse> {
     const historyCtx = history.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
     const responseText = await withBackoff(
       () => callGemini({
         prompt: `GLOBAL CONTEXT:\n${globalContext || "None provided."}\n\nCONTEXT HISTORY:\n${historyCtx}\n\nCURRENT INPUT: ${input}\n\nAnalyze if we have enough detail. If the GLOBAL CONTEXT provides the necessary code or information referenced in the INPUT, or if this input is an answer to a previous question, consider it as READY_TO_OPTIMIZE.\n\nRESPONSE FORMAT (JSON):\n{\n  "status": "READY_TO_OPTIMIZE" | "NEEDS_CLARIFICATION",\n  "clarification_question": "Solo si el estado es NEEDS_CLARIFICATION. Pregunta aclaratoria en ESPAÑOL."\n}`,
         jsonMode: true,
+        attachments,
         signal
       }),
       () => { }
@@ -180,7 +196,8 @@ export class PromptOptimizationService {
     onProgress?: (stage: string, detail: string) => void,
     globalContext: string = '',
     attempts: number = 0,
-    signal?: AbortSignal // Add signal parameter
+    signal?: AbortSignal,
+    attachments: Attachment[] = []
   ): Promise<OptimizationResult> {
     try {
       const memoryContext = MemoryService.getMemoryString();
@@ -192,6 +209,7 @@ export class PromptOptimizationService {
           prompt: `CONVERSATION HISTORY:\n${historyCtx}\n\nUSER INTENT:\n${originalInput}`,
           systemInstruction: GET_ARCHITECT_PROMPT("First draft or refinement phase.", memoryContext, globalContext),
           jsonMode: true,
+          attachments,
           signal
         }),
         (msg) => onProgress?.('WAITING', msg)
@@ -230,7 +248,7 @@ export class PromptOptimizationService {
       }
 
       onProgress?.('REFINING', `Score: ${criticData.clarity_score}. Mejorando...`);
-      return this.optimizePromptFlow(originalInput, history, onProgress, globalContext, attempts + 1, signal);
+      return this.optimizePromptFlow(originalInput, history, onProgress, globalContext, attempts + 1, signal, attachments);
 
     } catch (err) {
       if (this.lastValidResult) {
@@ -250,17 +268,17 @@ export const optimizePrompt = async (
   history: ChatMessage[] = [],
   onProgress?: (stage: string, detail: string) => void,
   contextData?: string,
-  options?: { skipInterviewer?: boolean; model?: string; signal?: AbortSignal }
+  options?: { skipInterviewer?: boolean; model?: string; signal?: AbortSignal, attachments?: Attachment[] }
 ): Promise<OptimizationResult | InterviewerResponse> => {
   const service = new PromptOptimizationService();
   onProgress?.('START', 'Iniciando pipeline cognitivo...');
 
   if (!options?.skipInterviewer) {
-    const clarity = await service.assessInputClarity(currentPrompt, history, contextData || '', options?.signal);
+    const clarity = await service.assessInputClarity(currentPrompt, history, contextData || '', options?.attachments, options?.signal);
     if (clarity.status === "NEEDS_CLARIFICATION") return clarity;
   }
 
-  return await service.optimizePromptFlow(currentPrompt, history, onProgress, contextData || '', 0, options?.signal);
+  return await service.optimizePromptFlow(currentPrompt, history, onProgress, contextData || '', 0, options?.signal, options?.attachments);
 }
 
 export async function runPrompt(prompt: string, variables: Record<string, string>, signal?: AbortSignal): Promise<string> {
@@ -295,3 +313,4 @@ export async function battlePrompts(promptA: string, promptB: string, context: s
   );
   return safeJsonParse<BattleResult>(responseText, BattleResultSchema);
 }
+

@@ -8,7 +8,7 @@ import EvaluationResults from './components/EvaluationResults';
 import PromptBattle from './components/PromptBattle';
 import { ComparisonView } from './components/ComparisonView';
 import { SharedPromptView } from './components/SharedPromptView';
-import { PromptVersion, ToastMessage } from './types';
+import { PromptVersion, ToastMessage, Attachment } from './types';
 import { supabase } from './src/services/supabaseClient';
 
 const App: React.FC = () => {
@@ -40,6 +40,15 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('globalContext', contextData);
   }, [contextData]);
+
+  const [attachments, setAttachments] = useState<Attachment[]>(() => {
+    const saved = localStorage.getItem('globalAttachments');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('globalAttachments', JSON.stringify(attachments));
+  }, [attachments]);
 
   // Load Versions from Supabase
   useEffect(() => {
@@ -177,6 +186,8 @@ const App: React.FC = () => {
               addToast={addToast}
               contextData={contextData}
               setContextData={setContextData}
+              attachments={attachments}
+              setAttachments={setAttachments}
             />
           } />
           <Route path="/versions" element={

@@ -9,7 +9,7 @@ import { TemplateSelector } from './TemplateSelector';
 import { ExportModal } from './ExportModal';
 import { RichPromptEditor } from './RichPromptEditor';
 import { openDirectory, readFileContent } from '../services/fileService';
-import { FileItem } from '../types';
+import { FileItem, Attachment } from '../types';
 import FileTree from './FileTree';
 import SaveVersionModal from './SaveVersionModal';
 import DebuggerConsole from './DebuggerConsole';
@@ -23,6 +23,8 @@ interface Props {
   addToast: (text: string, type?: 'success' | 'error' | 'info') => void;
   contextData: string;
   setContextData: (val: string) => void;
+  attachments: Attachment[];
+  setAttachments: (val: Attachment[]) => void;
 }
 
 const DiffView: React.FC<{ original: string; modified: string }> = ({ original, modified }) => {
@@ -71,7 +73,7 @@ const DiffView: React.FC<{ original: string; modified: string }> = ({ original, 
 };
 
 
-const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, onImport, addToast, contextData, setContextData }) => {
+const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, onImport, addToast, contextData, setContextData, attachments, setAttachments }) => {
   const navigate = useNavigate();
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
@@ -94,6 +96,8 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
 
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [commitMessage, setCommitMessage] = useState('Version Refinement');
+  const [isProcessingFile, setIsProcessingFile] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Hydration Guard
   const [isInitialized, setIsInitialized] = useState(false);
@@ -191,7 +195,7 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
         historyToUse,
         onProgress,
         contextData,
-        { skipInterviewer, model: selectedModel, signal: controller.signal }
+        { skipInterviewer, model: selectedModel, signal: controller.signal, attachments }
       );
 
       if ('refinedPrompt' in result) {
@@ -277,6 +281,55 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
       setIsLoadingFile(false);
     }
   }, [setContent, addToast, isBusy]);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsProcessingFile(true);
+    let processedCount = 0;
+    const newAttachments: Attachment[] = [];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      try {
+        const reader = new FileReader();
+        const base64Promise = new Promise<string>((resolve, reject) => {
+          reader.onload = () => {
+            const result = reader.result as string;
+            // Get just the base64 part
+            const base64 = result.split(',')[1];
+            resolve(base64);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+
+        const base64 = await base64Promise;
+
+        newAttachments.push({
+          id: Math.random().toString(36).substr(2, 9),
+          name: file.name,
+          type: file.type,
+          data: base64
+        });
+
+        processedCount++;
+      } catch (err) {
+        console.error("File processing error:", err);
+        addToast(`Failed to process ${file.name}`, 'error');
+      }
+    }
+
+    setAttachments([...attachments, ...newAttachments]);
+    setIsProcessingFile(false);
+    addToast(`${processedCount} files attached`, 'success');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeAttachment = (id: string) => {
+    setAttachments(attachments.filter(a => a.id !== id));
+  };
 
   const handleEvaluate = async () => {
     if (isBusy || !content.trim()) return;
@@ -466,6 +519,53 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
 
                       {showContext && (
                         <div className="p-2 animate-in slide-in-from-top-2">
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-[9px] uppercase text-slate-500 font-bold">Additional Knowledge</span>
+                            <div className="flex gap-2">
+                              <input
+                                type="file"
+                                multiple
+                                className="hidden"
+                                ref={fileInputRef}
+                                onChange={handleFileUpload}
+                                accept="image/*,.txt,.md,.json,.js,.ts,.py,.csv"
+                              />
+                              <button
+                                onClick={() => fileInputRef.current?.click()}
+                                disabled={isProcessingFile}
+                                className={`text-[10px] bg-white/5 hover:bg-white/10 text-slate-300 px-2 py-1 rounded flex items-center gap-1 transition-colors ${isProcessingFile ? 'animate-pulse cursor-not-allowed' : ''}`}
+                              >
+                                <span className="material-symbols-outlined text-sm">attach_file</span>
+                                {isProcessingFile ? 'Processing...' : 'Attach Files / Images'}
+                              </button>
+                              <button
+                                onClick={() => { setContextData(''); setAttachments([]); }}
+                                className="text-[10px] bg-white/5 hover:bg-white/10 text-slate-300 px-2 py-1 rounded flex items-center gap-1 transition-colors"
+                              >
+                                <span className="material-symbols-outlined text-sm">backspace</span>
+                                Clear All
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Attachment Chips */}
+                          {attachments.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mb-2 px-1">
+                              {attachments.map(att => (
+                                <div key={att.id} className="group relative flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg pr-2 pl-3 py-1.5 transition-all hover:bg-white/10">
+                                  <div className={`size-2 rounded-full ${att.type.includes('image') ? 'bg-purple-400' : att.type.includes('pdf') ? 'bg-red-400' : 'bg-blue-400'}`} />
+                                  <span className="text-[10px] text-slate-300 max-w-[150px] truncate" title={att.name}>{att.name}</span>
+                                  <button
+                                    onClick={() => removeAttachment(att.id)}
+                                    className="ml-1 text-slate-500 hover:text-danger p-0.5 rounded-full"
+                                  >
+                                    <span className="material-symbols-outlined text-[12px]">close</span>
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
                           <textarea
                             value={contextData}
                             onChange={(e) => setContextData(e.target.value)}

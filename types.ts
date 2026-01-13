@@ -58,3 +58,10 @@ export interface FileItem {
   handle: FileSystemFileHandle | FileSystemDirectoryHandle;
   children?: FileItem[];
 }
+
+export interface Attachment {
+  id: string;
+  name: string;
+  type: string;
+  data: string; // base64
+}
