@@ -56,14 +56,14 @@ const App: React.FC = () => {
         // Map Supabase layout to internal type
         const mapped: PromptVersion[] = data.map(d => ({
           id: d.id,
-          version: d.version_label || 'v1.0',
+          version: d.version_label || d.version || 'v1.0',
           tag: 'Cloud',
-          message: d.version_label || 'Cloud Version',
+          message: d.version_label || d.message || 'Cloud Version',
           content: d.content,
           author: d.author || 'User',
           timestamp: d.created_at,
           hash: 'synced',
-          rating: 0
+          rating: d.metadata?.rating ?? d.rating ?? 0
         }));
         setVersions(mapped);
       }
