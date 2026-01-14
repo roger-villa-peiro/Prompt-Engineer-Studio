@@ -66,31 +66,55 @@ export async function callGemini({
     });
   }
 
-  // Use the correct SDK method for @google/genai
-  const response = await ai.models.generateContent({
-    model: model,
-    contents: [{ role: 'user', parts }],
-    config: {
-      systemInstruction,
-      responseMimeType: jsonMode ? "application/json" : "text/plain",
-      temperature,
-      topP: AI_CONFIG.GENERATION_CONFIG.topP,
-      topK: AI_CONFIG.GENERATION_CONFIG.topK,
-      safetySettings: [
-        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-      ]
-    },
-  });
+  try {
+    console.log(`[GeminiService] Sending request to model: ${model}`);
 
-  // Manual abort check since SDK might not support signal propagation deep down yet
-  if (signal?.aborted) {
-    throw new Error('ABORTED');
+    // Create a timeout promise
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("TIMEOUT")), 120000); // 120s timeout
+    });
+
+    // Use the correct SDK method for @google/genai
+    const requestPromise = ai.models.generateContent({
+      model: model,
+      contents: [{ role: 'user', parts }],
+      config: {
+        systemInstruction,
+        responseMimeType: jsonMode ? "application/json" : "text/plain",
+        temperature,
+        topP: AI_CONFIG.GENERATION_CONFIG.topP,
+        topK: AI_CONFIG.GENERATION_CONFIG.topK,
+        safetySettings: [
+          { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+          { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+          { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+          { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+        ]
+      },
+    });
+
+    const response: any = await Promise.race([requestPromise, timeoutPromise]);
+
+    // Manual abort check since SDK might not support signal propagation deep down yet
+    if (signal?.aborted) {
+      throw new Error('ABORTED');
+    }
+
+    console.log(`[GeminiService] Response received.`);
+
+    // Handle potential SDK differences (function vs property)
+    if (typeof response.text === 'function') {
+      return response.text();
+    }
+    return response.text || "";
+
+  } catch (err: any) {
+    console.error("[GeminiService] Error:", err);
+    if (err.message === "TIMEOUT") {
+      throw new Error("TIMEOUT: La API tardó demasiado en responder.");
+    }
+    throw err;
   }
-
-  return response.text || "";
 }
 
 /**
@@ -176,8 +200,19 @@ async function withBackoff<T>(fn: () => Promise<T>, onRetry: (msg: string) => vo
 export class PromptOptimizationService {
   private lastValidResult: OptimizationResult | null = null;
 
-  async assessInputClarity(input: string, history: ChatMessage[] = [], globalContext: string = '', attachments: Attachment[] = [], signal?: AbortSignal): Promise<InterviewerResponse> {
+  async assessInputClarity(
+    input: string,
+    history: ChatMessage[] = [],
+    globalContext: string = '',
+    attachments: Attachment[] = [],
+    signal?: AbortSignal,
+    onProgress?: (stage: string, detail: string) => void
+  ): Promise<InterviewerResponse> {
     const historyCtx = history.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
+
+    // Notify we are starting the analysis
+    onProgress?.('ANALYSIS', 'Analizando claridad de la intención...');
+
     const responseText = await withBackoff(
       () => callGemini({
         prompt: `GLOBAL CONTEXT:\n${globalContext || "None provided."}\n\nCONTEXT HISTORY:\n${historyCtx}\n\nCURRENT INPUT: ${input}\n\nAnalyze if we have enough detail. If the GLOBAL CONTEXT provides the necessary code or information referenced in the INPUT, or if this input is an answer to a previous question, consider it as READY_TO_OPTIMIZE.\n\nRESPONSE FORMAT (JSON):\n{\n  "status": "READY_TO_OPTIMIZE" | "NEEDS_CLARIFICATION",\n  "clarification_question": "Solo si el estado es NEEDS_CLARIFICATION. Pregunta aclaratoria en ESPAÑOL."\n}`,
@@ -185,10 +220,12 @@ export class PromptOptimizationService {
         attachments,
         signal
       }),
-      () => { }
+      (msg) => onProgress?.('WAITING', `Claridad: ${msg}`)
     );
     return safeJsonParse<InterviewerResponse>(responseText, InterviewerResponseSchema);
   }
+
+
 
   async optimizePromptFlow(
     originalInput: string,
@@ -199,64 +236,102 @@ export class PromptOptimizationService {
     signal?: AbortSignal,
     attachments: Attachment[] = []
   ): Promise<OptimizationResult> {
-    try {
-      const memoryContext = MemoryService.getMemoryString();
-      const historyCtx = history.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
+    const memoryContext = MemoryService.getMemoryString();
 
-      onProgress?.('ARCHITECT', `Diseñando arquitectura (Intento ${attempts + 1})...`);
-      const architectResponseText = await withBackoff(
-        () => callGemini({
-          prompt: `CONVERSATION HISTORY:\n${historyCtx}\n\nUSER INTENT:\n${originalInput}`,
-          systemInstruction: GET_ARCHITECT_PROMPT("First draft or refinement phase.", memoryContext, globalContext),
-          jsonMode: true,
-          attachments,
-          signal
-        }),
-        (msg) => onProgress?.('WAITING', msg)
-      );
+    // Flatten history for the prompt context
+    const historyCtx = history.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
 
-      const archData = safeJsonParse<ArchitectResponse>(architectResponseText, ArchitectResponseSchema);
+    let critiqueHistory = "";
+    let currentAttempt = 0;
+    const maxRetries = AI_CONFIG.MAX_RETRIES; // typically 3
 
-      onProgress?.('CRITIC', `Auditando calidad estructural...`);
-      const criticResponseText = await withBackoff(
-        () => callGemini({
-          prompt: `PROMPT:\n${archData.refined_prompt}`,
-          systemInstruction: CRITIC_PROMPT,
-          jsonMode: true,
-          signal
-        }),
-        (msg) => onProgress?.('WAITING', msg)
-      );
+    while (currentAttempt <= maxRetries) {
+      try {
+        const isRetry = currentAttempt > 0;
+        const stageLabel = isRetry ? `REFINING (${currentAttempt}/${maxRetries})` : 'ARCHITECT';
 
-      const criticData = safeJsonParse<CriticResponse>(criticResponseText, CriticResponseSchema);
+        onProgress?.(isRetry ? 'REFINING' : 'ARCHITECT',
+          isRetry
+            ? `Mejorando diseño... (Intento ${currentAttempt + 1})`
+            : `Diseñando arquitectura...`
+        );
 
-      const finalResult: OptimizationResult = {
-        refinedPrompt: archData.refined_prompt,
-        metadata: {
-          thinkingProcess: archData.thinking_process,
-          changesMade: archData.changes_made,
-          criticScore: criticData.clarity_score,
-          rubricChecks: criticData.rubric_checks,
+        // 1. CALL ARCHITECT
+        // We inject the "critiqueHistory" so the architect knows what failed previously
+        const architectResponseText = await withBackoff(
+          () => callGemini({
+            prompt: `CONVERSATION HISTORY:\n${historyCtx}\n\nUSER INTENT:\n${originalInput}`,
+            systemInstruction: GET_ARCHITECT_PROMPT(critiqueHistory, memoryContext, globalContext),
+            jsonMode: true,
+            attachments,
+            signal
+          }),
+          (msg) => onProgress?.('WAITING', msg)
+        );
+
+        const archData = safeJsonParse<ArchitectResponse>(architectResponseText, ArchitectResponseSchema);
+
+        // 2. CALL CRITIC
+        onProgress?.('CRITIC', `Auditando calidad estructural...`);
+        const criticResponseText = await withBackoff(
+          () => callGemini({
+            prompt: `PROMPT:\n${archData.refined_prompt}`,
+            systemInstruction: CRITIC_PROMPT,
+            jsonMode: true,
+            signal
+          }),
+          (msg) => onProgress?.('WAITING', msg)
+        );
+
+        const criticData = safeJsonParse<CriticResponse>(criticResponseText, CriticResponseSchema);
+
+        // 3. CONSTRUCT RESULT
+        const finalResult: OptimizationResult = {
+          refinedPrompt: archData.refined_prompt,
+          metadata: {
+            thinkingProcess: archData.thinking_process,
+            changesMade: archData.changes_made,
+            criticScore: criticData.clarity_score,
+            rubricChecks: criticData.rubric_checks,
+          }
+        };
+
+        // Update fallback check
+        this.lastValidResult = finalResult;
+
+        // 4. CHECK SUCCESS
+        if (criticData.clarity_score >= AI_CONFIG.MIN_QUALITY_SCORE) {
+          onProgress?.('COMPLETE', 'Optimización exitosa.');
+          return finalResult;
         }
-      };
 
-      this.lastValidResult = finalResult;
+        // 5. PREPARE FOR NEXT ITERATION (IF ANY)
+        if (currentAttempt < maxRetries) {
+          onProgress?.('REFINING', `Score: ${criticData.clarity_score}. Aplicando feedback del crítico...`);
 
-      if (criticData.clarity_score >= AI_CONFIG.MIN_QUALITY_SCORE || attempts >= AI_CONFIG.MAX_RETRIES - 1) {
-        onProgress?.('COMPLETE', 'Optimización exitosa.');
-        return finalResult;
+          // Append to critique history for the next Architect call
+          critiqueHistory += `\n[Attempt ${currentAttempt + 1}]\nDraft:\n${archData.refined_prompt}\n\nScore: ${criticData.clarity_score}\nFeedback: ${criticData.feedback}\n-------------------\n`;
+
+          currentAttempt++;
+        } else {
+          // Max retries reached, return best effort
+          onProgress?.('COMPLETE', 'Máximo de intentos alcanzado. Entregando mejor resultado.');
+          return finalResult;
+        }
+
+      } catch (err) {
+        // If an error occurs (network, etc), try to return partial if we have it, else throw
+        if (this.lastValidResult) {
+          onProgress?.('RECOVERY', 'Fallo detectado. Restaurando borrador parcial.');
+          return { ...this.lastValidResult, partialSuccess: true };
+        }
+        throw err;
       }
-
-      onProgress?.('REFINING', `Score: ${criticData.clarity_score}. Mejorando...`);
-      return this.optimizePromptFlow(originalInput, history, onProgress, globalContext, attempts + 1, signal, attachments);
-
-    } catch (err) {
-      if (this.lastValidResult) {
-        onProgress?.('RECOVERY', 'Fallo detectado. Restaurando borrador parcial.');
-        return { ...this.lastValidResult, partialSuccess: true };
-      }
-      throw err;
     }
+
+    // Should theoretically be unreachable due to return in loop, but safe fallback
+    if (this.lastValidResult) return this.lastValidResult;
+    throw new Error("Optimization flow failed to produce a result.");
   }
 }
 
@@ -274,7 +349,7 @@ export const optimizePrompt = async (
   onProgress?.('START', 'Iniciando pipeline cognitivo...');
 
   if (!options?.skipInterviewer) {
-    const clarity = await service.assessInputClarity(currentPrompt, history, contextData || '', options?.attachments, options?.signal);
+    const clarity = await service.assessInputClarity(currentPrompt, history, contextData || '', options?.attachments, options?.signal, onProgress);
     if (clarity.status === "NEEDS_CLARIFICATION") return clarity;
   }
 
