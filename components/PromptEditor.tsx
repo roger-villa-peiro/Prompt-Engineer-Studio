@@ -529,18 +529,20 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
                                 ref={fileInputRef}
                                 onChange={handleFileUpload}
                                 accept="image/*,.txt,.md,.json,.js,.ts,.py,.csv"
+                                disabled={isOptimizing}
                               />
                               <button
                                 onClick={() => fileInputRef.current?.click()}
-                                disabled={isProcessingFile}
-                                className={`text-[10px] bg-white/5 hover:bg-white/10 text-slate-300 px-2 py-1 rounded flex items-center gap-1 transition-colors ${isProcessingFile ? 'animate-pulse cursor-not-allowed' : ''}`}
+                                disabled={isProcessingFile || isOptimizing}
+                                className={`text-[10px] bg-white/5 hover:bg-white/10 text-slate-300 px-2 py-1 rounded flex items-center gap-1 transition-colors ${isProcessingFile || isOptimizing ? 'opacity-50 cursor-not-allowed' : ''}`}
                               >
                                 <span className="material-symbols-outlined text-sm">attach_file</span>
                                 {isProcessingFile ? 'Processing...' : 'Attach Files / Images'}
                               </button>
                               <button
                                 onClick={() => { setContextData(''); setAttachments([]); }}
-                                className="text-[10px] bg-white/5 hover:bg-white/10 text-slate-300 px-2 py-1 rounded flex items-center gap-1 transition-colors"
+                                disabled={isOptimizing}
+                                className={`text-[10px] bg-white/5 hover:bg-white/10 text-slate-300 px-2 py-1 rounded flex items-center gap-1 transition-colors ${isOptimizing ? 'opacity-50 cursor-not-allowed' : ''}`}
                               >
                                 <span className="material-symbols-outlined text-sm">backspace</span>
                                 Clear All
@@ -556,8 +558,9 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
                                   <div className={`size-2 rounded-full ${att.type.includes('image') ? 'bg-purple-400' : att.type.includes('pdf') ? 'bg-red-400' : 'bg-blue-400'}`} />
                                   <span className="text-[10px] text-slate-300 max-w-[150px] truncate" title={att.name}>{att.name}</span>
                                   <button
-                                    onClick={() => removeAttachment(att.id)}
-                                    className="ml-1 text-slate-500 hover:text-danger p-0.5 rounded-full"
+                                    onClick={() => !isOptimizing && removeAttachment(att.id)}
+                                    className={`ml-1 text-slate-500 hover:text-danger p-0.5 rounded-full ${isOptimizing ? 'cursor-not-allowed opacity-50' : ''}`}
+                                    disabled={isOptimizing}
                                   >
                                     <span className="material-symbols-outlined text-[12px]">close</span>
                                   </button>
@@ -570,7 +573,8 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
                             value={contextData}
                             onChange={(e) => setContextData(e.target.value)}
                             placeholder="Paste relevant background context, rules, or code snippets here to help the AI understand your specific domain..."
-                            className="w-full h-32 bg-black/40 border border-white/10 rounded-lg p-3 text-xs text-slate-300 focus:outline-none focus:border-primary/50 resize-y font-mono"
+                            className={`w-full h-32 bg-black/40 border border-white/10 rounded-lg p-3 text-xs text-slate-300 focus:outline-none focus:border-primary/50 resize-y font-mono ${isOptimizing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            disabled={isOptimizing}
                           />
                         </div>
                       )}

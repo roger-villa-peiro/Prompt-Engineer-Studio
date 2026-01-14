@@ -37,7 +37,8 @@ export async function callGemini({
   model = AI_CONFIG.MODEL_ID,
   temperature = AI_CONFIG.GENERATION_CONFIG.temperature,
   attachments,
-  signal
+  signal,
+  timeout
 }: {
   prompt: string;
   systemInstruction?: string;
@@ -46,6 +47,7 @@ export async function callGemini({
   temperature?: number;
   attachments?: Attachment[];
   signal?: AbortSignal;
+  timeout?: number;
 }) {
   const apiKey = process.env.API_KEY;
   if (!apiKey) throw new Error("PROD_FATAL: API_KEY is missing from execution environment.");
@@ -70,8 +72,10 @@ export async function callGemini({
     console.log(`[GeminiService] Sending request to model: ${model}`);
 
     // Create a timeout promise
+    // Create a timeout promise
+    const timeoutMs = arguments[0].timeout || 120000;
     const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => reject(new Error("TIMEOUT")), 120000); // 120s timeout
+      setTimeout(() => reject(new Error("TIMEOUT")), timeoutMs);
     });
 
     // Use the correct SDK method for @google/genai
@@ -213,16 +217,39 @@ export class PromptOptimizationService {
     // Notify we are starting the analysis
     onProgress?.('ANALYSIS', 'Analizando claridad de la intención...');
 
-    const responseText = await withBackoff(
-      () => callGemini({
-        prompt: `GLOBAL CONTEXT:\n${globalContext || "None provided."}\n\nCONTEXT HISTORY:\n${historyCtx}\n\nCURRENT INPUT: ${input}\n\nAnalyze if we have enough detail. If the GLOBAL CONTEXT provides the necessary code or information referenced in the INPUT, or if this input is an answer to a previous question, consider it as READY_TO_OPTIMIZE.\n\nRESPONSE FORMAT (JSON):\n{\n  "status": "READY_TO_OPTIMIZE" | "NEEDS_CLARIFICATION",\n  "clarification_question": "Solo si el estado es NEEDS_CLARIFICATION. Pregunta aclaratoria en ESPAÑOL."\n}`,
-        jsonMode: true,
-        attachments,
-        signal
-      }),
-      (msg) => onProgress?.('WAITING', `Claridad: ${msg}`)
-    );
-    return safeJsonParse<InterviewerResponse>(responseText, InterviewerResponseSchema);
+    console.log('[GeminiService] Starting assessInputClarity...');
+
+    try {
+      // Use a shorter timeout logic here or rely on callGemini's timeout but we want it fast
+      const responseText = await withBackoff(
+        () => callGemini({
+          prompt: `GLOBAL CONTEXT:\n${globalContext || "None provided."}\n\nCONTEXT HISTORY:\n${historyCtx}\n\nCURRENT INPUT: ${input}\n\nAnalyze if we have enough detail. If the GLOBAL CONTEXT provides the necessary code or information referenced in the INPUT, or if this input is an answer to a previous question, consider it as READY_TO_OPTIMIZE.\n\nRESPONSE FORMAT (JSON):\n{\n  "status": "READY_TO_OPTIMIZE" | "NEEDS_CLARIFICATION",\n  "clarification_question": "Solo si el estado es NEEDS_CLARIFICATION. Pregunta aclaratoria en ESPAÑOL."\n}`,
+          jsonMode: true,
+          attachments,
+          signal,
+          timeout: 30000 // 30s timeout for clarity check
+        }),
+        (msg) => onProgress?.('WAITING', `Claridad: ${msg}`)
+      );
+
+      console.log('[GeminiService] assessInputClarity response received:', responseText);
+      return safeJsonParse<InterviewerResponse>(responseText, InterviewerResponseSchema);
+
+    } catch (error: any) {
+      console.error('[GeminiService] assessInputClarity failed:', error);
+
+      // Fail gracefully: if clarity check fails, assume we can proceed to optimization
+      // checking if it's a critical error or just a timeout/glitch
+      if (error.message?.includes('TIMEOUT') || error.message?.includes('ABORTED')) {
+        // Should we bubble up or assume ready? 
+        // For a better UX, if clarity check hangs, let's just proceed to try optimization
+        // or let the user know. 
+        // The user said it "hangs", so we must return something to unblock.
+        console.warn('[GeminiService] Clarity check timed out or failed. Defaulting to READY_TO_OPTIMIZE.');
+        return { status: 'READY_TO_OPTIMIZE' };
+      }
+      throw error;
+    }
   }
 
 
