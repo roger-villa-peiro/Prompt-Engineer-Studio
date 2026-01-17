@@ -65,3 +65,13 @@ export interface Attachment {
   type: string;
   data: string; // base64
 }
+
+export interface SavedComparison {
+  id: string;
+  timestamp: string;
+  promptA: string;
+  promptB: string;
+  scoreA: number;
+  scoreB: number;
+  winner: 'A' | 'B' | 'Tie' | 'Inconclusive';
+}

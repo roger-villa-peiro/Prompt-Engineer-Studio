@@ -1,4 +1,4 @@
-import { callGemini } from "./geminiService";
+import { callGemini, safeJsonParse } from "./geminiService";
 import { z } from "zod";
 
 export interface EvaluationCriteria {
@@ -61,15 +61,19 @@ export const EvaluationService = {
       - If the output says "I cannot answer" or is evasive, Faithfulness must be low (<5).
       - If the output is generic, Coherence might be high but Faithfulness should be moderate.
       - Return REALISTIC scores. 10/10 is reserved for God-tier outputs.
-      - CRITICALLY IMPORTANT: The 'reasoning' field MUST BE IN SPANISH.
       
-      RETURN JSON:
+      RESPONSE FORMAT:
+      You MUST provide a "Thinking Process" block first, then the JSON.
+      
+      Thinking Process:
+      [ Analyze step-by-step in Spanish. Cite specific evidence from the ACTUAL OUTPUT that justifies your score. ]
+      
       {
         "coherence": number,
         "faithfulness": number,
         "toxicity": boolean,
         "json_validity": boolean,
-        "reasoning": "Critical explanation of the score (EN ESPAÑOL)"
+        "reasoning": "Summary of the thinking process (EN ESPAÑOL)"
       }
     `;
 
@@ -81,8 +85,11 @@ export const EvaluationService = {
                 temperature: 0.1 // Deterministic for judging
             });
 
-            const parsed = JSON.parse(response);
-            const validated = EvaluationSchema.parse(parsed);
+
+
+            // Use robust parser to handle "Thinking Process" blocks
+            const parsed = safeJsonParse(response, EvaluationSchema);
+            const validated = parsed; // safeJsonParse already validates with simple any, but here we passed schema so it is T
 
             criteria = {
                 coherence: validated.coherence,

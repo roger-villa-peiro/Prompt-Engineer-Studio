@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { optimizePrompt, runPrompt, InterviewerResponse, OptimizationResult, ChatMessage } from '../services/geminiService';
 import { EvaluationService, EvaluationResult } from '../services/evaluationService';
-import { extractVariables } from '../utils/promptUtils';
+import { extractVariables, parseContextVariables } from '../utils/promptUtils';
 import { EvaluationDashboard } from './EvaluationDashboard';
 import { OnboardingTour } from './OnboardingTour';
 import { TemplateSelector } from './TemplateSelector';
@@ -78,7 +78,7 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
-  const [selectedModel, setSelectedModel] = useState('gemini-1.5-flash');
+  const [selectedModel, setSelectedModel] = useState('gemini-3-pro-preview');
 
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [evalResult, setEvalResult] = useState<EvaluationResult | null>(null);
@@ -338,7 +338,11 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
     setEvalResult(null);
 
     try {
-      const output = await runPrompt(content, vars);
+      // FIX: Parse variables defined in context (e.g. {{text}}=...)
+      const contextVars = parseContextVariables(contextData);
+      const runtimeVars = { ...vars, ...contextVars }; // Overlay context variables on top of console vars
+
+      const output = await runPrompt(content, runtimeVars);
       const result = await EvaluationService.evaluateOutput(content, output, contextData);
       setEvalResult(result);
       addToast('Evaluación completada', 'success');
@@ -417,8 +421,8 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
                 onChange={(e) => setSelectedModel(e.target.value)}
                 className="bg-black/20 text-[8px] text-slate-400 border border-white/5 rounded px-1 py-0.5 outline-none hover:bg-black/40 cursor-pointer"
               >
-                <option value="gemini-1.5-flash">Gemini Flash (Fast)</option>
-                <option value="gemini-1.5-pro">Gemini Pro (Smart)</option>
+                <option value="gemini-3-flash-preview">Gemini 3 Flash (Fast)</option>
+                <option value="gemini-3-pro-preview">Gemini 3 Pro (Thinking)</option>
               </select>
             </div>
           </div>

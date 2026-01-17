@@ -49,8 +49,8 @@ export async function callGemini({
   signal?: AbortSignal;
   timeout?: number;
 }) {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) throw new Error("PROD_FATAL: API_KEY is missing from execution environment.");
+  const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+  if (!apiKey) throw new Error("PROD_FATAL: API_KEY/GEMINI_API_KEY is missing from execution environment.");
 
   // Initialize client dynamically per request to ensure up-to-date config
   const ai = new GoogleGenAI({ apiKey });
@@ -162,7 +162,21 @@ export const BattleResultSchema = z.object({
  */
 export function safeJsonParse<T>(text: string | undefined, schema: z.ZodSchema<T>): T {
   if (!text) throw new Error("API_ERROR: Received empty response.");
-  const sanitized = text.replace(/```(?:json)?\n?([\s\S]*?)\n?```/g, "$1").trim();
+
+  // ROBUST PARSING STRATEGY (Scientific Improvement)
+  // Instead of simple regex, we extract the first '{' and last '}' to isolate the JSON object
+  // This allows "Reasoning Traces" to exist before the JSON block without breaking the parser.
+  let jsonString = text;
+  const jsonStartIndex = text.indexOf('{');
+  const jsonEndIndex = text.lastIndexOf('}');
+
+  if (jsonStartIndex !== -1 && jsonEndIndex !== -1 && jsonEndIndex > jsonStartIndex) {
+    jsonString = text.substring(jsonStartIndex, jsonEndIndex + 1);
+  }
+
+  // Fallback cleanup if extraction didn't work perfectly or if it's already clean
+  const sanitized = jsonString.replace(/```(?:json)?\n?([\s\S]*?)\n?```/g, "$1").trim();
+
   try {
     const json = JSON.parse(sanitized);
     return schema.parse(json);
@@ -172,7 +186,14 @@ export function safeJsonParse<T>(text: string | undefined, schema: z.ZodSchema<T
       console.error("RAW JSON:", text);
       throw new Error(`DATA_INTEGRITY_ERROR: Validation failed.`);
     }
-    throw new Error("SYNTAX_ERROR: Failed to decode model output.");
+    // Retry with aggressive cleanup for common LLM markdown errors
+    try {
+      const agressiveClean = sanitized.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+      const json = JSON.parse(agressiveClean);
+      return schema.parse(json);
+    } catch (e2) {
+      throw new Error("SYNTAX_ERROR: Failed to decode model output.");
+    }
   }
 }
 
@@ -261,7 +282,8 @@ export class PromptOptimizationService {
     globalContext: string = '',
     attempts: number = 0,
     signal?: AbortSignal,
-    attachments: Attachment[] = []
+    attachments: Attachment[] = [],
+    targetModel: string = 'gemini-3-pro-preview' // New Param
   ): Promise<OptimizationResult> {
     const memoryContext = MemoryService.getMemoryString();
 
@@ -279,8 +301,8 @@ export class PromptOptimizationService {
 
         onProgress?.(isRetry ? 'REFINING' : 'ARCHITECT',
           isRetry
-            ? `Mejorando diseño... (Intento ${currentAttempt + 1})`
-            : `Diseñando arquitectura...`
+            ? `Mejorando (Intento ${currentAttempt + 1}) | Target: ${targetModel}`
+            : `Diseñando arquitectura V2 (XML) para ${targetModel}...`
         );
 
         // 1. CALL ARCHITECT
@@ -288,7 +310,7 @@ export class PromptOptimizationService {
         const architectResponseText = await withBackoff(
           () => callGemini({
             prompt: `CONVERSATION HISTORY:\n${historyCtx}\n\nUSER INTENT:\n${originalInput}`,
-            systemInstruction: GET_ARCHITECT_PROMPT(critiqueHistory, memoryContext, globalContext),
+            systemInstruction: GET_ARCHITECT_PROMPT(critiqueHistory, memoryContext, globalContext, targetModel),
             jsonMode: true,
             attachments,
             signal
@@ -380,7 +402,16 @@ export const optimizePrompt = async (
     if (clarity.status === "NEEDS_CLARIFICATION") return clarity;
   }
 
-  return await service.optimizePromptFlow(currentPrompt, history, onProgress, contextData || '', 0, options?.signal, options?.attachments);
+  return await service.optimizePromptFlow(
+    currentPrompt,
+    history,
+    onProgress,
+    contextData || '',
+    0,
+    options?.signal,
+    options?.attachments,
+    options?.model // Pass the target model (e.g., user selected "gemini-3-flash")
+  );
 }
 
 export async function runPrompt(prompt: string, variables: Record<string, string>, signal?: AbortSignal): Promise<string> {
@@ -415,4 +446,110 @@ export async function battlePrompts(promptA: string, promptB: string, context: s
   );
   return safeJsonParse<BattleResult>(responseText, BattleResultSchema);
 }
+
+/**
+ * SIPDO: SYNTHETIC DATA GENERATION (Scientific Improvement)
+ * Generates 3 distinct test cases to rigorously evaluate prompt robustness.
+ */
+export async function generateTestCases(promptA: string, promptB: string, globalContext: string = ""): Promise<Record<string, string>[]> {
+  const GENERATOR_SYSTEM_PROMPT = `
+Eres un Ingeniero de QA (Quality Assurance) experto en romper sistemas de IA (Red Teaming).
+Tu objetivo es generar 3 casos de prueba ("Inputs") para evaluar la robustez de un Prompt de usuario.
+
+Analiza el PROMPT DEL USUARIO. Si detectas que pide JSON, Código o Llamadas a Funciones, ADAPTA los casos para validar esquemas profundos.
+
+Genera un objeto JSON con 3 casos de prueba:
+
+1. "simple": Un caso ideal, claro y directo.
+2. "complex":
+   - Si el prompt es TEXTO: Un caso con ruido, ambigüedad o datos irrelevantes.
+   - Si el prompt es TOOL/JSON: Un caso donde falten parámetros opcionales o los tipos de datos sean confusos (ej. string "123" en lugar de número).
+3. "edge_case": Intento de romper la lógica (Inyección, Datos Null, Idioma cruzado).
+
+Salida esperada (JSON estricto):
+{
+  "simple": "string con el input",
+  "complex": "string con el input",
+  "edge_case": "string con el input"
+}
+`;
+
+  try {
+    const response = await callGemini({
+      prompt: `CONTEXT:\n${globalContext}\n\nPROMPT A:\n${promptA}\n\nPROMPT B:\n${promptB}`,
+      systemInstruction: GENERATOR_SYSTEM_PROMPT,
+      jsonMode: true,
+      temperature: 0.8 // High creativity for attacks
+    });
+
+    const schema = z.object({
+      simple: z.string(),
+      complex: z.string(),
+      edge_case: z.string()
+    });
+
+    const cases = safeJsonParse(response, schema);
+
+    // Map back to the format expected by the Battle UI
+    return [
+      { type: "Simple", input: cases.simple },
+      { type: "Complex", input: cases.complex },
+      { type: "Edge Case", input: cases.edge_case }
+    ];
+
+  } catch (error) {
+    console.error("SIPDO Generation Failed:", error);
+    // Fallback if generation fails
+    return [
+      { type: "Simple", input: "Test Input 1" },
+      { type: "Complex", input: "Test Input 2" },
+      { type: "Edge Case", input: "" } // Empty string is a valid edge case
+    ];
+  }
+}
+
+/**
+ * HALLUCINATION CHECK (Deep Analysis Mode)
+ * Uses QA-Prompting to verify factual consistency against source context.
+ */
+export async function verifyHallucinations(input: string, output: string, sourceContext: string): Promise<{ score: number, issues: string[] }> {
+  if (!sourceContext || sourceContext.length < 50) return { score: 100, issues: [] }; // Cannot verify without context
+
+  const responseText = await withBackoff(
+    () => callGemini({
+      prompt: `
+      SOURCE TEXT:
+      ${sourceContext}
+
+      MODEL OUTPUT:
+      ${output}
+
+      TASK:
+      Verify if the MODEL OUTPUT contains any claims NOT supported by the SOURCE TEXT (Hallucinations).
+      
+      INSTRUCTIONS:
+      1. Identify all claims in the Output.
+      2. Check each claim against the Source.
+      3. Flag unsupported claims.
+
+      RESPONSE FORMAT (JSON):
+      {
+        "score": number (0-100, 100 = No Hallucinations),
+        "issues": ["List of unsupported claims..."]
+      }
+      `,
+      systemInstruction: "You are a Fact-Checking AI. Be extremely strict. Return JSON.",
+      jsonMode: true
+    }),
+    () => { }
+  );
+
+  const schema = z.object({
+    score: z.number(),
+    issues: z.array(z.string())
+  });
+
+  return safeJsonParse(responseText, schema);
+}
+
 
