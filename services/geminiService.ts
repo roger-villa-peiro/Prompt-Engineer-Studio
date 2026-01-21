@@ -2,8 +2,10 @@ import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { z } from "zod";
 import { AI_CONFIG } from "../config/aiConfig";
 import { GET_ARCHITECT_PROMPT, CRITIC_PROMPT } from "../config/systemPrompts";
+import { GET_REQUIREMENTS_PROMPT, GET_DESIGN_PROMPT, GET_TASKS_PROMPT } from "../config/architectPrompts";
 import { BattleResult, Attachment } from "../types";
 import { MemoryService } from "./memoryService";
+import { searchKnowledge, formatKnowledgeContext } from "./knowledgeService";
 /**
  * NEW RICH RETURN TYPE: OptimizationResult
  */
@@ -16,6 +18,13 @@ export interface OptimizationResult {
     rubricChecks: Record<string, boolean>;
   };
   partialSuccess?: boolean;
+  // V2 Spec Architect Fields
+  specStage?: 'REQUIREMENTS' | 'DESIGN' | 'TASKS' | 'COMPLETE';
+  artifacts?: {
+    requirements?: z.infer<typeof RequirementsResponseSchema>;
+    design?: z.infer<typeof DesignResponseSchema>;
+    tasks?: z.infer<typeof TasksResponseSchema>;
+  };
 }
 
 export interface ChatMessage {
@@ -144,6 +153,29 @@ export const CriticResponseSchema = z.object({
 export const InterviewerResponseSchema = z.object({
   status: z.enum(["READY_TO_OPTIMIZE", "NEEDS_CLARIFICATION"]),
   clarification_question: z.string().nullish(),
+});
+
+// V2 SPEC ARCHITECT SCHEMAS
+export const RequirementsResponseSchema = z.object({
+  thought_process: z.string(),
+  questions: z.array(z.string()),
+  clarified_scope: z.string().optional(),
+});
+
+export const DesignResponseSchema = z.object({
+  thought_process: z.string(),
+  mermaid_diagram: z.string(),
+  data_models: z.string(),
+  file_structure: z.string(),
+});
+
+export const TasksResponseSchema = z.object({
+  thought_process: z.string(),
+  tasks: z.array(z.object({
+    id: z.number(),
+    title: z.string(),
+    steps: z.array(z.string())
+  }))
 });
 
 export type ArchitectResponse = z.infer<typeof ArchitectResponseSchema>;
@@ -288,7 +320,10 @@ export class PromptOptimizationService {
     attempts: number = 0,
     signal?: AbortSignal,
     attachments: Attachment[] = [],
-    targetModel: string = 'gemini-3-pro-preview' // New Param
+    targetModel: string = 'gemini-3-pro-preview', // New Param
+    subType?: 'CODING' | 'PLANNING' | 'WRITING' | 'GENERAL', // SPECIALIST INJECTION
+    vibeContext?: string, // VIBE CODER
+    knowledgeContext?: string // KNOWLEDGE SEARCH
   ): Promise<OptimizationResult> {
     const memoryContext = MemoryService.getMemoryString();
 
@@ -307,7 +342,7 @@ export class PromptOptimizationService {
         onProgress?.(isRetry ? 'REFINING' : 'ARCHITECT',
           isRetry
             ? `Mejorando (Intento ${currentAttempt + 1}) | Target: ${targetModel}`
-            : `Diseñando arquitectura V2 (XML) para ${targetModel}...`
+            : `Diseñando arquitectura V2 (XML) [${subType || 'GENERAL'}] para ${targetModel}...`
         );
 
         // 1. CALL ARCHITECT
@@ -317,7 +352,7 @@ export class PromptOptimizationService {
         const architectResponseText = await withBackoff(
           () => callGemini({
             prompt: `CONVERSATION HISTORY:\n${historyCtx}\n\nUSER INTENT:\n${originalInput}`,
-            systemInstruction: GET_ARCHITECT_PROMPT(critiqueHistory, memoryContext, globalContext, targetModel),
+            systemInstruction: GET_ARCHITECT_PROMPT(critiqueHistory, memoryContext, globalContext, targetModel, subType, vibeContext, knowledgeContext),
             jsonMode: false, // DISABLED JSON MODE TO ALLOW THINKING
             attachments,
             signal
@@ -389,6 +424,117 @@ export class PromptOptimizationService {
     if (this.lastValidResult) return this.lastValidResult;
     throw new Error("Optimization flow failed to produce a result.");
   }
+
+  /**
+   * V2: SPEC ARCHITECT STATE MACHINE
+   * Handles the interactive 3-stage workflow.
+   */
+  async runSpecArchitectFlow(
+    input: string,
+    history: ChatMessage[],
+    onProgress?: (stage: string, detail: string) => void,
+    signal?: AbortSignal
+  ): Promise<OptimizationResult> {
+    // Determine current state based on history
+    // Simple heuristic: Count assistant messages that look like specific stages
+    // In a real DB-backed app, we'd persist the 'state' field. 
+    // Here we deduce it for statelessness.
+
+    // Flatten history
+    const historyCtx = history.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
+
+    // Check if we have approved requirements (User said "agree" or similar after we asked Qs?)
+    // Or if we already generated a design.
+    // Ideally, the UI passes the explicit state, but we are refactoring internal service logic.
+    // Let's assume the "input" contains the latest user approval.
+
+    // STATE 1: REQUIREMENTS (Default if new)
+    // If history is empty OR last message was user input => START or CLARIFY
+
+    // To keep it simple for this sprint:
+    // We will assume a linear flow based on specific markers in the history, 
+    // BUT since we don't have persistent state here, we rely on the Prompt Editor to manage the conversation.
+    // Actually, we'll implement this as a PASS-THROUGH agent. 
+    // The "stage" logic effectively happens by analyzing the last assistant message.
+
+    const lastAssistantMsg = [...history].reverse().find(m => m.role === 'assistant');
+
+    let nextStage: 'REQUIREMENTS' | 'DESIGN' | 'TASKS' = 'REQUIREMENTS';
+
+    if (lastAssistantMsg) {
+      if (lastAssistantMsg.content.includes("thought_process") && lastAssistantMsg.content.includes("questions")) {
+        nextStage = 'DESIGN'; // User replied to requirements/questions
+      } else if (lastAssistantMsg.content.includes("mermaid_diagram")) {
+        nextStage = 'TASKS'; // User replied to design
+      }
+    }
+
+    onProgress?.('ARCHITECT', `Executing Spec Stage: ${nextStage}`);
+
+    let responseJson: any;
+    let refinedPrompt = "";
+
+    if (nextStage === 'REQUIREMENTS') {
+      const responseText = await withBackoff(
+        () => callGemini({
+          prompt: input,
+          systemInstruction: GET_REQUIREMENTS_PROMPT(input),
+          jsonMode: true,
+          signal
+        }),
+        (msg) => onProgress?.('WAITING', msg)
+      );
+      responseJson = safeJsonParse(responseText, RequirementsResponseSchema);
+      // We pack this into the "Refined Prompt" field so the UI can display it
+      // The UI will need to detect it's a JSON block and render the Questions.
+      refinedPrompt = JSON.stringify(responseJson, null, 2);
+
+    } else if (nextStage === 'DESIGN') {
+      onProgress?.('ARCHITECT', 'Generating Architecture & Mermaid...');
+      const responseText = await withBackoff(
+        () => callGemini({
+          prompt: `Here are the approved requirements/answers:\n${input}\n\nHISTORY:\n${historyCtx}`,
+          systemInstruction: GET_DESIGN_PROMPT("See input"),
+          jsonMode: true,
+          signal
+        }),
+        (msg) => onProgress?.('WAITING', msg)
+      );
+      responseJson = safeJsonParse(responseText, DesignResponseSchema);
+      refinedPrompt = JSON.stringify(responseJson, null, 2);
+
+    } else if (nextStage === 'TASKS') {
+      onProgress?.('ARCHITECT', 'Generating TDD Task List...');
+      const responseText = await withBackoff(
+        () => callGemini({
+          prompt: `Approved Design:\n${historyCtx}`, // In real flow, we'd pass the design object
+          systemInstruction: GET_TASKS_PROMPT("See history"),
+          jsonMode: true,
+          signal
+        }),
+        (msg) => onProgress?.('WAITING', msg)
+      );
+      responseJson = safeJsonParse(responseText, TasksResponseSchema);
+      refinedPrompt = JSON.stringify(responseJson, null, 2);
+    }
+
+    return {
+      refinedPrompt: refinedPrompt,
+      metadata: {
+        thinkingProcess: responseJson.thought_process,
+        changesMade: ["Stage Advanced"],
+        criticScore: 100, // Bypass
+        rubricChecks: {}
+      },
+      specStage: nextStage,
+      artifacts: {
+        // Polymorphic return
+        requirements: nextStage === 'REQUIREMENTS' ? responseJson : undefined,
+        design: nextStage === 'DESIGN' ? responseJson : undefined,
+        tasks: nextStage === 'TASKS' ? responseJson : undefined,
+      }
+    };
+  }
 }
 
 /**
@@ -399,14 +545,37 @@ export const optimizePrompt = async (
   history: ChatMessage[] = [],
   onProgress?: (stage: string, detail: string) => void,
   contextData?: string,
-  options?: { skipInterviewer?: boolean; model?: string; signal?: AbortSignal, attachments?: Attachment[] }
+  options?: {
+    skipInterviewer?: boolean;
+    model?: string;
+    signal?: AbortSignal;
+    attachments?: Attachment[];
+    subType?: 'CODING' | 'PLANNING' | 'WRITING' | 'GENERAL';
+    vibeContext?: string;
+  }
 ): Promise<OptimizationResult | InterviewerResponse> => {
   const service = new PromptOptimizationService();
   onProgress?.('START', 'Iniciando pipeline cognitivo...');
 
-  if (!options?.skipInterviewer) {
+  if (!options?.skipInterviewer && options?.subType !== 'PLANNING') {
     const clarity = await service.assessInputClarity(currentPrompt, history, contextData || '', options?.attachments, options?.signal, onProgress);
     if (clarity.status === "NEEDS_CLARIFICATION") return clarity;
+  }
+
+  // PARALLEL KNOWLEDGE SEARCH (If not actively planning)
+  let knowledgeContext = "";
+  if (options?.subType !== 'PLANNING') {
+    onProgress?.('SEARCH', 'Buscando contexto fresco en paralelo...');
+    const snippets = await searchKnowledge(currentPrompt);
+    if (snippets.length > 0) {
+      knowledgeContext = formatKnowledgeContext(snippets);
+      onProgress?.('SEARCH', `Encontrados ${snippets.length} recursos relevantes.`);
+    }
+  }
+
+  // DISPATCHER
+  if (options?.subType === 'PLANNING') {
+    return await service.runSpecArchitectFlow(currentPrompt, history, onProgress, options?.signal);
   }
 
   return await service.optimizePromptFlow(
@@ -417,7 +586,10 @@ export const optimizePrompt = async (
     0,
     options?.signal,
     options?.attachments,
-    options?.model // Pass the target model (e.g., user selected "gemini-3-flash")
+    options?.model, // Pass the target model (e.g., user selected "gemini-3-flash")
+    options?.subType, // Pass the specialist subType
+    options?.vibeContext, // Pass the vibe context
+    knowledgeContext // Pass the Retrieved Knowledge
   );
 }
 

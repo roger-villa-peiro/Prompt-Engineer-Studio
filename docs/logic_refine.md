@@ -12,6 +12,31 @@ Antes de diseñar nada, un agente preliminar (Personalidad "Poke") analiza tu so
     *   Usa un tono cálido y "witty" (ingenioso), evitando sonar robótico.
 *   **Estado**: `READY_TO_OPTIMIZE` (Procede) vs `NEEDS_CLARIFICATION` (Pausa).
 
+### Esquema de Pensamiento (Specialist Injection) - **NUEVO (V2)**
+El Arquitecto NO empieza desde cero. El Router analiza el sub-tipo de solicitud (`SPEC_SUBTYPE`) e inyecta un "Plano Maestro" (DNA) antes de procesar:
+
+#### 1. Archetype: CODING (El Ingeniero)
+*   **Trigger**: Solicitudes de código, refactorización, tests.
+*   **Inyección DNA**:
+    *   **Test-After-Edit**: "Nunca asumas que funcionará. Escribe el test, luego el código."
+    *   **Context Adherence**: "No inventes APIs. Usa estrictamente las interfaces existentes."
+    *   **Vibe Check**: "React 19+, Tailwind, No `import type`."
+
+#### 2. Archetype: PLANNING (The Strategy Architect)
+*   **Trigger**: "Plan an app", "Roadmap", "Architecture".
+*   **Workflow Interactivo (3-Stage State Machine)**:
+    1.  **Requirements (EARS)**: El agente primero entrevista al usuario (`GET_REQUIREMENTS`) para aclarar el alcance.
+    2.  **Design (Mermaid)**: Genera automáticamente diagramas de flujo y esquemas de datos (`GET_DESIGN`).
+    3.  **Tasks (TDD)**: Crea un plan de ejecución granular con pruebas (`GET_TASKS`).
+*   **Inyección DNA**:
+    *   **Strict Phasing**: "PLANNING (Docs) -> EXECUTION (Code)". No escribir código si no hay plan aprobado.
+    *   **Risk Analysis**: "Identifica bloqueos antes de empezar."
+
+#### 3. Archetype: WRITING / GENERAL (El Agente Autónomo)
+*   **Trigger**: Copywriting, preguntas generales, análisis.
+*   **Inyección DNA**:
+    *   **Heurística de Autonomía**: "Si tienes herramientas, úsalas. No pidas permiso para respirar. Solo detente si estás bloqueado o el riesgo es alto (>50%)."
+
 ### Características Clave
 
 #### 1. Núcleo XML Estricto

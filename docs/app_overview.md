@@ -38,32 +38,29 @@ Sistema de gestión del ciclo de vida del prompt (Timeline, Restauración, Diff 
 *   **Soporte de Archivos**: Carga de documentos PDF e Imágenes.
 *   **Procesamiento Nativo**: El modelo (Gemini 2.5) "ve" y "lee" los adjuntos para generar prompts contextuales, en lugar de solo pegar texto plano.
 
-## 3. Arquitectura Técnica
+## 3. Arquitectura Técnica (V2 - AI Native)
 
 *   **Frontend**: React 19 + Vite + TailwindCSS.
 *   **Inteligencia Artificial**:
-    *   **Router**: `Gemini 2.0 Flash` (Clasificación de Intención Rápida).
+    *   **Router V2**: `Gemini 2.0 Flash` (Clasificación Semántica de Intención + Subtipos).
     *   **Orchestrator**: `Gemini 2.5 Pro` (Thinking Logic, Unity Evolution).
-    *   **Dual Jury**: 
-        *   Primary: `Gemini 2.5 Pro` (Google) + Fallback (GPT-OSS).
-        *   Secondary: `Llama 3.3 70b` (Groq) + `GPT-OSS-120b` (Fallback).
-*   **Resiliencia**:
-    *   **Triple-Layer Safety Net**: Sistema de backups (Llama -> GPT -> Gemini) que garantiza 99.9% de disponibilidad en evaluaciones.
-    *   **Rate Limit Handling**: Gestión inteligente de esperas y backoff exponencial.
-*   **Almacenamiento**:
-    *   **Local Backend**: Sistema de archivos local para persistencia rápida en desarrollo.
-    *   **Supabase (Integración preparada)**: Capa de base de datos para características en la nube.
+    *   **Spec Architect**: Máquina de estados para diseño interactivo (Requirements -> Design -> Tasks).
 *   **Servicios Cognitivos**:
-    *   `geminiService`: Orquestación de llamadas a Google AI (incluyendo generación de casos de prueba).
-    *   `judgeService`: Lógica de auditoría resilient y arbitraje SIPDO.
+    *   `geminiService`: Orquestación y State Machine del Arquitecto.
+    *   `routerService`: Gateway inteligente que decide el "Archetype" (Coding, Planning, Writing).
+    *   `vibeService`: **(Vibe Coder)** Detección automática del stack tecnológico (React, Tailwind, etc.) leyendo `package.json`.
+    *   `knowledgeService`: **(Parallel RAG)** Búsqueda simulada en paralelo para inyectar contexto fresco (Next.js 15, React 19).
     *   `optimizerService`: Lógica genética para APE.
 
-## 4. Flujo de Trabajo Típico
-## 4. Flujo de Trabajo Típico
-1.  **Input (Router Gateway)**: El usuario envía un mensaje. El sistema clasifica si es "Charla" (CHAT), "Prueba" (TEST) o "Trabajo" (SPEC).
-2.  **Draft**: Escribes una idea básica (si es SPEC).
-3.  **Refine**: El "Arquitecto" sugiere una estructura profesional.
-4.  **Battle (SIPDO)**: El sistema genera casos de prueba y enfrenta tu prompt contra la versión anterior.
+## 4. Flujo de Trabajo Típico (V2)
+
+1.  **Input (Gateway Router)**: El usuario envía un mensaje. El sistema clasifica la intención (CODING, PLANNING, WRITING) y activa el **Vibe Coder** y **Knowledge Search** en paralelo.
+2.  **Interactive Planning (Spec Architect)**:
+    *   Si es complejo, el agente inicia una entrevista (EARS).
+    *   Genera un Diagrama de Arquitectura (Mermaid).
+    *   Genera un Plan de Tareas (TDD).
+3.  **Refine**: El "Arquitecto" inyecta el blueprint específico y optimiza el prompt final.
+4.  **Battle (Parallel)**: Se ejecutan 2 variantes (A/B) en paralelo para encontrar la mejor estructura.
 5.  **Analyze**: Revisas el reporte de batalla y el feedback del juez.
-6.  **Evolve (APE)**: Si pierdes, usas el "Biólogo Evolutivo" para generar un contraataque (Gen C).
-7.  **Commit**: Guardas la versión ganadora en el historial.
+6.  **Evolve (APE)**: Si pierdes, usas el "Biólogo Evolutivo" para generar un contraataque.
+7.  **Commit**: Guardas la versión ganadora con tagging automático.

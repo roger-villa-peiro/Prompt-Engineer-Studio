@@ -16,7 +16,7 @@ El sistema no usa casos de prueba estáticos. Utiliza un "Generador Red Team" (`
 
 #### 2. Ejecución Paralela Extrema (Windsurf Pattern)
 Para eliminar el "Position Bias" y reducir la latencia en un 50%:
-*   El sistema lanza **4 hilos simultáneos**:
+*   El sistema lanza **4 hilos simultáneos** usando `Promise.all`:
     1.  Juez Primario (A vs B)
     2.  Juez Primario (B vs A)
     3.  Juez Secundario (A vs B)

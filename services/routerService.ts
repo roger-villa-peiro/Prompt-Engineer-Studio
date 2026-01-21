@@ -3,6 +3,7 @@ import { z } from "zod";
 
 export const RouterResponseSchema = z.object({
     mode: z.enum(['CHAT', 'SPEC', 'TEST']),
+    subType: z.enum(['CODING', 'PLANNING', 'WRITING', 'GENERAL']).optional(),
     confidence: z.number().min(0).max(1),
 });
 
@@ -20,35 +21,29 @@ export const classifyIntent = async (
     const SYSTEM_PROMPT = `
 You are an intent classifier for a language model.
 
-Your job is to classify the user's intent based on their conversation history into one of three main categories:
+Your job is to classify the user's intent based on their conversation history into one of three main categories, and if SPEC, a sub-category.
 
-1. **CHAT**: Casual conversation, simple questions, greetings, or short functional queries ("Hi", "Thanks", "What is an LLM?").
-2. **SPEC**: Requests to CREATE, REFINE, OPTIMIZE, or EVALUATE a prompt or specification. This is the "Heavy Lifting" mode.
-3. **TEST**: Requests to run code, use the playground, or test a specific variable/output.
+1. **CHAT**: Casual conversation, simple questions, greetings.
+2. **SPEC**: Requests to CREATE, REFINE, OPTIMIZE, or EVALUATE a prompt or specification. "Heavy Lifting".
+3. **TEST**: Requests to run code, playground, or test variables.
 
-Return ONLY a JSON object with 2 properties: "mode" and "confidence".
+### SPEC Sub-Types (The Specialist Injection)
+If the mode is **SPEC**, you MUST classify the \`subType\`:
 
-### Category Definitions
+*   **CODING**: Writing code, refactoring, fixing bugs, React, TypeScript, Scripts.
+*   **PLANNING**: Architectural design, roadmaps, master plans, file structures.
+*   **WRITING**: Copywriting, content generation, email drafting.
+*   **GENERAL**: Everything else (Analysis, Brainstorming).
 
-#### 1. CHAT (Lightweight)
-- General knowledge questions.
-- Greetings / Politeness.
-- Clarifications that don't need a full prompt re-write.
+Return ONLY a JSON object.
 
-#### 2. SPEC (Heavyweight - Architect)
-- "Create a prompt for..."
-- "Refine this..."
-- "Judge this..."
-- "Optimize for Llama..."
-- "Make this better..."
+### Examples
+- "Fix this bug in my React component" -> { "mode": "SPEC", "subType": "CODING", "confidence": 0.99 }
+- "Plan a roadmap for a generic app" -> { "mode": "SPEC", "subType": "PLANNING", "confidence": 0.98 }
+- "Write an email to my boss" -> { "mode": "SPEC", "subType": "WRITING", "confidence": 0.95 }
+- "Hello there" -> { "mode": "CHAT", "confidence": 0.99 }
 
-#### 3. TEST (Execution)
-- "Run this..."
-- "Test with X..."
-- "Show me the playground..."
-
-IMPORTANT: Respond ONLY with a JSON object. No markdown, no fences.
-Example: { "mode": "SPEC", "confidence": 0.98 }
+IMPORTANT: Respond ONLY with a JSON object. No markdown.
 `;
 
     try {

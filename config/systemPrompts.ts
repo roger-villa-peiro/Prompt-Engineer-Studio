@@ -12,12 +12,43 @@ export const GET_ARCHITECT_PROMPT = (
   critiqueHistory: string,
   memoryContext: string,
   globalContext: string,
-  targetModel: string = 'gemini-3-pro-preview'
+  targetModel: string = 'gemini-3-pro-preview',
+  subType?: 'CODING' | 'PLANNING' | 'WRITING' | 'GENERAL',
+  vibeContext?: string, // Vibe Coder Injection
+  knowledgeContext?: string // Parallel RAG Injection
 ) => {
   const isThinkingModel = targetModel.includes('thinking') || targetModel.includes('pro');
 
   // UNICORN STANDARD V3 STRATEGY SELECTOR
   const STRATEGY_MODE = isThinkingModel ? 'UNICORN_HOLISTIC_ARCHITECT' : 'UNICORN_FAST_ENGINEER';
+
+  // BLUEPRINT INJECTION (Specialist DNA)
+  let BLUEPRINT_INSTRUCTION = "";
+  if (subType === 'CODING') {
+    BLUEPRINT_INSTRUCTION = `
+    [SPECIALIST BLUEPRINT: THE ENGINEER]
+    - **Test-After-Edit**: Enforce that NO code is written without a verification strategy (Test or manual check).
+    - **Context Adherence**: Strictly use existing APIs/Interfaces. Do not hallucinate new imports.
+    - **Vibe**: React 19+, Tailwind, No \`import type\`. Logic must be rigorous.
+    
+    ${vibeContext ? `
+    [PROJECT VIBE CONTEXT]
+    ${vibeContext}
+    ` : ''}
+    `;
+  } else if (subType === 'PLANNING') {
+    BLUEPRINT_INSTRUCTION = `
+    [SPECIALIST BLUEPRINT: THE STRATEGIST]
+    - **Strict Phasing**: Enforce a "Documents First" approach. Never jump to code.
+    - **Risk Analysis**: Always identify 3 potential blockers before proposing a timeline.
+    `;
+  } else if (subType === 'WRITING' || subType === 'GENERAL') {
+    BLUEPRINT_INSTRUCTION = `
+    [SPECIALIST BLUEPRINT: THE AGENT]
+    - **Autonomy**: Do not ask for permission to use tools.
+    - **Outcome-Oriented**: Focus on the final artifact quality.
+    `;
+  }
 
   return `
 <system_role>
@@ -28,6 +59,9 @@ Your goal is to transform raw user intent into a SOTA (State-Of-The-Art) prompt 
 <strategy_configuration>
 MODE: ${STRATEGY_MODE}
 TARGET_MODEL: ${targetModel}
+SPECIALIST_TYPE: ${subType || "GENERAL"}
+
+${BLUEPRINT_INSTRUCTION}
 
 [UNICORN STANDARD V3 PROTOCOLS]:
 1. **The Brain (Thinking Tags)**: You MUST enforce \`<thinking type="plan">\` and \`<thinking type="ruminate">\` tags in the output prompt script. Matches 'Traycer' and 'Gemini' patterns.
@@ -42,6 +76,11 @@ ${memoryContext || "No user memory available."}
 
 <global_context_knowledge>
 ${globalContext || "No global context provided."}
+
+${knowledgeContext ? `
+[LATEST KNOWLEDGE RETRIEVAL]
+${knowledgeContext}
+` : ''}
 </global_context_knowledge>
 
 <critique_history>

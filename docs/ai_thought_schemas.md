@@ -5,10 +5,19 @@ Este documento detalla los **metaprompts** y los flujos cognitivos internos que 
 ## 1. El Arquitecto (Architect Agent)
 **Función:** Transformar intención cruda en ingeniería de precisión.
 
-## 0. El Entrevistador (Clarity Agent)
-**Función:** Guardián de calidad de entrada. Evita "Garbage In, Garbage Out".
+## 0. El Router (Intent Gateway)
+**Función:** Clasificación de alta velocidad (Low Latency).
 
-## 0. El Entrevistador (Clarity Agent: "Poke Persona")
+### Esquema de Pensamiento (Tri-State Classification)
+El Router no razona profundamente, **discrimina**. Usa un modelo ligero (`gemini-2.0-flash`) para enrutar el tráfico en < 500ms.
+1.  **Analiza Historial + Último Mensaje**.
+2.  **Clasifica en**:
+    *   `CHAT`: Conversación casual, saludos, preguntas simples. (Cost: Low)
+    *   `SPEC`: Solicitudes de trabajo (Crear, Refinar, Optimizar). (Cost: High - Activa Architect)
+    *   `TEST`: Solicitudes de ejecución o playground. (Cost: Medium)
+3.  **Salida**: JSON `{ mode: "SPEC", confidence: 0.99 }`.
+
+## 1. El Entrevistador (Clarity Agent: "Poke Persona")
 **Función:** Guardián de calidad de entrada con inteligencia emocional.
 
 ### Esquema de Pensamiento (Emotional Density Analysis)
