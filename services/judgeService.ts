@@ -116,43 +116,26 @@ async function evaluateWithResilientJudge(pool: JudgeCandidate[], promptA: strin
  * Thread 3: Secondary Judge (A vs B)
  * Thread 4: Secondary Judge (B vs A)
  */
-export async function evaluateBattlePair(promptA: string, promptB: string, context: string): Promise<BattleResult> {
-
-    // 1. Launch all 4 threads simultaneously
-
-    // Define an intermediate type for the thread result that includes the mandatory 'role' and optional 'swapped'
+export async function evaluateBattlePairSingleSide(promptA: string, promptB: string, context: string): Promise<BattleResult> {
+    // Define an intermediate type for the thread result
     type ThreadResult = JudgeVerdict & { role: string; swapped?: boolean };
 
     const threads = await Promise.all([
-        // Primary Judge Threads
+        // Primary Judge Thread (A->B only)
         evaluateWithResilientJudge(JURY_POOLS.PRIMARY, promptA, promptB, context).then(v => ({ ...v, role: 'Primary (A->B)' } as ThreadResult)),
-        evaluateWithResilientJudge(JURY_POOLS.PRIMARY, promptB, promptA, context).then(v => ({ ...v, role: 'Primary (B->A)', swapped: true } as ThreadResult)),
-
-        // Secondary Judge Threads
+        
+        // Secondary Judge Thread (A->B only)
         evaluateWithResilientJudge(JURY_POOLS.SECONDARY, promptA, promptB, context).then(v => ({ ...v, role: 'Secondary (A->B)' } as ThreadResult)),
-        evaluateWithResilientJudge(JURY_POOLS.SECONDARY, promptB, promptA, context).then(v => ({ ...v, role: 'Secondary (B->A)', swapped: true } as ThreadResult))
     ]);
 
-    // 2. Normalize Results (Flip scores for swapped threads)
-    const normalizedVerdicts = threads.map(t => {
-        if (t.swapped) {
-            return {
-                ...t,
-                // If B vs A, then scoreA is actually B's score
-                scoreA: t.scoreB,
-                scoreB: t.scoreA,
-                // Flip winner
-                winner: (t.winner === 'A' ? 'B' : (t.winner === 'B' ? 'A' : 'Tie')) as 'A' | 'B' | 'Tie'
-            };
-        }
-        return t;
-    });
+    // No normalization needed as we are only detecting A vs B (no swapped threads)
+    const normalizedVerdicts = threads;
 
     // 3. Aggregate Scores (Map-Reduce)
     const totalScoreA = normalizedVerdicts.reduce((sum, v) => sum + v.scoreA, 0);
     const totalScoreB = normalizedVerdicts.reduce((sum, v) => sum + v.scoreB, 0);
-    const avgScoreA = Math.round(totalScoreA / 4);
-    const avgScoreB = Math.round(totalScoreB / 4);
+    const avgScoreA = Math.round(totalScoreA / 2); // Divide by 2 threads
+    const avgScoreB = Math.round(totalScoreB / 2);
 
     // 4. Determine Winner
     let winner: 'A' | 'B' | 'Tie' = 'Tie';
@@ -163,6 +146,53 @@ export async function evaluateBattlePair(promptA: string, promptB: string, conte
     const reasoning = normalizedVerdicts
         .map(v => `[${v.role}]: ${v.judgeName} voted ${v.winner} (${v.scoreA}-${v.scoreB})\nReasoning: ${v.reasoning}`)
         .join('\n\n---\n\n');
+
+    return {
+        winner,
+        scoreA: avgScoreA,
+        scoreB: avgScoreB,
+        reasoning
+    };
+}
+
+/**
+ * NEW: Extreme Parallelism Evaluation (Windsurf Pattern)
+ * Runs 4 concurrent threads to eliminate position bias and reduce latency.
+ * Thread 1: Primary Judge (A vs B)
+ * Thread 2: Primary Judge (B vs A)
+ * Thread 3: Secondary Judge (A vs B)
+ * Thread 4: Secondary Judge (B vs A)
+ */
+export async function evaluateBattlePair(promptA: string, promptB: string, context: string): Promise<BattleResult> {
+
+    // 1. Launch all 4 threads simultaneously (now reusing the single side logic for cleaner code, though slightly different parallel structure)
+    // Actually, to keep exact 4-thread parallelism without awaiting twice, we should launch them all.
+    // However, since we now have evaluateBattlePairSingleSide, we can just run that twice in parallel if we wanted to maintain the exact behavior,
+    // but the UI wants to control the phases.
+    // For backward compatibility of this specific function, let's keep it robust:
+
+    const [resultStraight, resultSwapped] = await Promise.all([
+        evaluateBattlePairSingleSide(promptA, promptB, context),
+        evaluateBattlePairSingleSide(promptB, promptA, context)
+    ]);
+
+    // Normalize swapped result
+    const swappedNormalized = {
+        ...resultSwapped,
+        scoreA: resultSwapped.scoreB,
+        scoreB: resultSwapped.scoreA,
+        winner: (resultSwapped.winner === 'A' ? 'B' : (resultSwapped.winner === 'B' ? 'A' : 'Tie')) as 'A' | 'B' | 'Tie'
+    };
+
+    // Aggregate
+    const avgScoreA = Math.round((resultStraight.scoreA + swappedNormalized.scoreA) / 2);
+    const avgScoreB = Math.round((resultStraight.scoreB + swappedNormalized.scoreB) / 2);
+
+    let winner: 'A' | 'B' | 'Tie' = 'Tie';
+    if (avgScoreA > avgScoreB + 2) winner = 'A';
+    else if (avgScoreB > avgScoreA + 2) winner = 'B';
+
+    const reasoning = resultStraight.reasoning + "\n\n=== REVERSE CHECK ===\n\n" + swappedNormalized.reasoning;
 
     return {
         winner,

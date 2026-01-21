@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { PromptVersion, BattleResult, SavedComparison } from '../types';
 import { runPrompt } from '../services/geminiService';
-import { evaluateBattlePair } from '../services/judgeService';
+import { evaluateBattlePair, evaluateBattlePairSingleSide } from '../services/judgeService';
 import { generateTestCases } from '../services/geminiService';
 import { extractVariables } from '../utils/promptUtils';
 import { OptimizerService, EvolutionResult } from '../services/optimizerService';
@@ -153,7 +153,8 @@ const PromptBattle: React.FC<Props> = ({ versions, addToast }) => {
       const type = (testCase as any).type || "Unknown";
       addToast(`[${batchName}] Phase 1/2: Assessing ${type}`, "info");
       const inputContext = JSON.stringify(testCase);
-      const result = await evaluateBattlePair(contentA, contentB, inputContext);
+      // Use Single Side evaluation (A vs B)
+      const result = await evaluateBattlePairSingleSide(contentA, contentB, inputContext);
       p1Results.push({ type, result });
 
       // Update UI with partial P1 result
@@ -166,7 +167,8 @@ const PromptBattle: React.FC<Props> = ({ versions, addToast }) => {
       const type = (testCase as any).type || "Unknown";
       addToast(`[${batchName}] Phase 2/2: Verifying ${type}`, "info");
       const inputContext = JSON.stringify(testCase);
-      const result = await evaluateBattlePair(contentB, contentA, inputContext); // Swap
+      // Use Single Side evaluation (B vs A) - Swapped
+      const result = await evaluateBattlePairSingleSide(contentB, contentA, inputContext); // Swap
       p2Results.push({ type, result });
     }
 
