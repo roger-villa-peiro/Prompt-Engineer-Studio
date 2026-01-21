@@ -22,6 +22,13 @@ El sistema es capaz de detectar cuando un prompt ha alcanzado su pico local.
 #### 3. Deep Reasoning (Lógica en Español)
 El motor de evolución (impulsado por Gemini 3 Pro) genera un **meta-razonamiento en Español** antes de escribir el prompt. Este texto explica *por qué* se hacen los cambios (ej: "Se añadieron restricciones XML para evitar alucinaciones en los casos edge").
 
+#### 4. The Cluely Brake (Freno de Incertidumbre)
+**Regla del 90%**: Antes de generar la `Master Mutation`, el Biólogo evalúa:
+*"¿Estoy 90% seguro de que este cambio mejorará el Score?"*
+*   Si **NO**: Detiene la mutación (Status `CONVERGED`).
+*   Si **SÍ**: Procede (Status `EVOLVING`).
+*   **Beneficio**: Evita el "Over-optimization" y la degradación de prompts que ya funcionan bien.
+
 ## 🔄 El Ciclo de Vida Evolutivo
 
 1.  **Battle (SIPDO)**: Ejecución de tests y evaluación Dual-Judge.

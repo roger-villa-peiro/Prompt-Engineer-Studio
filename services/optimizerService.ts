@@ -11,6 +11,7 @@ interface EvolutionParams {
 }
 
 export interface EvolutionResult {
+    status?: 'EVOLVING' | 'CONVERGED';
     master_mutation: {
         logic: string;
         mutation: string;
@@ -66,6 +67,7 @@ export const OptimizerService = {
 
             // Parse using the new Unity Evolution Schema
             const UnitySchema = z.object({
+                status: z.enum(['EVOLVING', 'CONVERGED']).optional().default('EVOLVING'),
                 master_mutation: z.object({
                     logic: z.string(),
                     mutation: z.string()
@@ -79,8 +81,9 @@ export const OptimizerService = {
             console.error("Optimization Error:", error);
             // Fallback: Return the winner prompt as is if evolution fails
             return {
+                status: 'CONVERGED',
                 master_mutation: {
-                    logic: "Evolution failed. Returning winner unchanged.",
+                    logic: "Evolution failed or timed out. Keeping original.",
                     mutation: winnerPrompt
                 }
             };

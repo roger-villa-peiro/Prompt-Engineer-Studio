@@ -33,13 +33,19 @@ Un sistema de métricas cuantitativas para asegurar la calidad antes de producci
 ### E. Historial y Control de Versiones
 Sistema de gestión del ciclo de vida del prompt (Timeline, Restauración, Diff Visual).
 
+### F. Gestión de Contexto Multimodal (Knowledge Base)
+**NUEVO**: Capacidad de inyectar conocimiento externo directamente en la "memoria de trabajo" de la IA.
+*   **Soporte de Archivos**: Carga de documentos PDF e Imágenes.
+*   **Procesamiento Nativo**: El modelo (Gemini 2.5) "ve" y "lee" los adjuntos para generar prompts contextuales, en lugar de solo pegar texto plano.
+
 ## 3. Arquitectura Técnica
 
 *   **Frontend**: React 19 + Vite + TailwindCSS.
 *   **Inteligencia Artificial**:
+    *   **Router**: `Gemini 2.0 Flash` (Clasificación de Intención Rápida).
     *   **Orchestrator**: `Gemini 2.5 Pro` (Thinking Logic, Unity Evolution).
     *   **Dual Jury**: 
-        *   Primary: `Gemini 2.5 Pro` (Google).
+        *   Primary: `Gemini 2.5 Pro` (Google) + Fallback (GPT-OSS).
         *   Secondary: `Llama 3.3 70b` (Groq) + `GPT-OSS-120b` (Fallback).
 *   **Resiliencia**:
     *   **Triple-Layer Safety Net**: Sistema de backups (Llama -> GPT -> Gemini) que garantiza 99.9% de disponibilidad en evaluaciones.
@@ -53,9 +59,11 @@ Sistema de gestión del ciclo de vida del prompt (Timeline, Restauración, Diff 
     *   `optimizerService`: Lógica genética para APE.
 
 ## 4. Flujo de Trabajo Típico
-1.  **Draft**: Escribes una idea básica.
-2.  **Refine**: El "Arquitecto" sugiere una estructura profesional.
-3.  **Battle (SIPDO)**: El sistema genera casos de prueba y enfrenta tu prompt contra la versión anterior.
-4.  **Analyze**: Revisas el reporte de batalla y el feedback del juez.
-5.  **Evolve (APE)**: Si pierdes, usas el "Biólogo Evolutivo" para generar un contraataque (Gen C).
-6.  **Commit**: Guardas la versión ganadora en el historial.
+## 4. Flujo de Trabajo Típico
+1.  **Input (Router Gateway)**: El usuario envía un mensaje. El sistema clasifica si es "Charla" (CHAT), "Prueba" (TEST) o "Trabajo" (SPEC).
+2.  **Draft**: Escribes una idea básica (si es SPEC).
+3.  **Refine**: El "Arquitecto" sugiere una estructura profesional.
+4.  **Battle (SIPDO)**: El sistema genera casos de prueba y enfrenta tu prompt contra la versión anterior.
+5.  **Analyze**: Revisas el reporte de batalla y el feedback del juez.
+6.  **Evolve (APE)**: Si pierdes, usas el "Biólogo Evolutivo" para generar un contraataque (Gen C).
+7.  **Commit**: Guardas la versión ganadora en el historial.

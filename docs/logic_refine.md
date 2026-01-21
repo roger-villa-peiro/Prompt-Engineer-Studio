@@ -4,6 +4,14 @@
 
 La función "Refine" transforma una intención de usuario cruda en un prompt de ingeniería (SOTA). La versión V2 del Arquitecto introduce mejoras estructurales significativas.
 
+### Fase 0: Auditoría de Claridad (The Interviewer - Poke Persona)
+Antes de diseñar nada, un agente preliminar (Personalidad "Poke") analiza tu solicitud.
+*   **Objetivo**: Verificar si hay suficiente "densidad de información" sin ser molesto.
+*   **Inteligencia Emocional**:
+    *   Si detecta frustración ("idk", "hazlo tú"), **deja de preguntar** e improvisa una solución creativa.
+    *   Usa un tono cálido y "witty" (ingenioso), evitando sonar robótico.
+*   **Estado**: `READY_TO_OPTIMIZE` (Procede) vs `NEEDS_CLARIFICATION` (Pausa).
+
 ### Características Clave
 
 #### 1. Núcleo XML Estricto

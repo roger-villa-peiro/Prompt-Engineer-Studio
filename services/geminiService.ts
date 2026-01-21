@@ -243,13 +243,17 @@ export class PromptOptimizationService {
 
     try {
       // Use a shorter timeout logic here or rely on callGemini's timeout but we want it fast
+      // REFACTOR: Use Centralized Poke Persona Prompt
+      const { GET_CLARITY_AGENT_PROMPT } = await import("../config/systemPrompts");
+
       const responseText = await withBackoff(
         () => callGemini({
-          prompt: `GLOBAL CONTEXT:\n${globalContext || "None provided."}\n\nCONTEXT HISTORY:\n${historyCtx}\n\nCURRENT INPUT: ${input}\n\nAnalyze if we have enough detail. If the GLOBAL CONTEXT provides the necessary code or information referenced in the INPUT, or if this input is an answer to a previous question, consider it as READY_TO_OPTIMIZE.\n\nRESPONSE FORMAT (JSON):\n{\n  "status": "READY_TO_OPTIMIZE" | "NEEDS_CLARIFICATION",\n  "clarification_question": "Solo si el estado es NEEDS_CLARIFICATION. Pregunta aclaratoria en ESPAÑOL."\n}`,
+          prompt: `ANALYZE THIS INTERACTION:`,
+          systemInstruction: GET_CLARITY_AGENT_PROMPT(globalContext || "None", historyCtx, input),
           jsonMode: true,
           attachments,
           signal,
-          timeout: 30000 // 30s timeout for clarity check (Fail Fast)
+          timeout: 60000
         }),
         (msg) => onProgress?.('WAITING', `Claridad: ${msg}`)
       );

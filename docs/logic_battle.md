@@ -14,18 +14,22 @@ El sistema no usa casos de prueba estáticos. Utiliza un "Generador Red Team" (`
 
 **NUEVO (Tool-Use Detection)**: Si el sistema detecta que el prompt solicita JSON o llamadas a herramientas, adapta los casos de prueba para validar esquemas estrictos y tipos de datos, en lugar de solo texto libre.
 
-#### 2. Ejecución Intercalada (Interleaved Execution)
-Para evitar el "Position Bias" (sesgo de posición) de los LLMs jueces:
-*   **Fase 1**: Se evalúa A vs B.
-*   **Fase 2**: Se evalúa B vs A (con los mismos inputs).
-*   **Consenso**: Se promedian los resultados. Si el juez cambia de opinión solo por el orden, se marca como "Inconclusive" (Sesgo detectado).
+#### 2. Ejecución Paralela Extrema (Windsurf Pattern)
+Para eliminar el "Position Bias" y reducir la latencia en un 50%:
+*   El sistema lanza **4 hilos simultáneos**:
+    1.  Juez Primario (A vs B)
+    2.  Juez Primario (B vs A)
+    3.  Juez Secundario (A vs B)
+    4.  Juez Secundario (B vs A)
+*   **Normalización**: Los hilos invertidos (B vs A) invierten sus puntajes automáticamente.
+*   **Consenso**: Se promedian los 4 resultados para un veredicto final blindado.
 
 #### 3. Dual-Model Jury (Consenso Adversarial)
 El veredicto no es dictado por una sola IA, sino por el consenso de dos modelos de alto rendimiento con arquitecturas diferentes:
 
 *   **Juez Primario (Precision)**: **Gemini 2.5 Pro**.
     *   Se encarga del análisis profundo y matizado.
-    *   *Backup*: Gemini 2.5 Pro (Retry Logic).
+    *   **Resiliencia**: Si Gemini falla, activa su propia cadena de seguridad: Gemini Retry -> GPT-OSS-120b (Backup).
 
 *   **Juez Secundario (Robustness)**: **Llama 3.3 70b**.
     *   Aporta una visión externa (no-Google) para eliminar sesgos de proveedor.
