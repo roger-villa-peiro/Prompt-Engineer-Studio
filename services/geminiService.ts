@@ -73,7 +73,7 @@ export async function callGemini({
 
     // Create a timeout promise
     // Create a timeout promise
-    const timeoutMs = arguments[0].timeout || 120000;
+    const timeoutMs = arguments[0].timeout || 180000;
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => reject(new Error("TIMEOUT")), timeoutMs);
     });
@@ -134,7 +134,8 @@ export const CriticResponseSchema = z.object({
   safety_pass: z.boolean(),
   clarity_score: z.number().min(0).max(100),
   rubric_checks: z.object({
-    has_role: z.boolean(),
+    has_thinking_protocol: z.boolean().optional().default(false),
+    has_artifact_protocol: z.boolean().optional().default(false),
     no_ambiguity: z.boolean(),
   }),
   feedback: z.string(),
@@ -248,7 +249,7 @@ export class PromptOptimizationService {
           jsonMode: true,
           attachments,
           signal,
-          timeout: 30000 // 30s timeout for clarity check
+          timeout: 30000 // 30s timeout for clarity check (Fail Fast)
         }),
         (msg) => onProgress?.('WAITING', `Claridad: ${msg}`)
       );
@@ -307,11 +308,13 @@ export class PromptOptimizationService {
 
         // 1. CALL ARCHITECT
         // We inject the "critiqueHistory" so the architect knows what failed previously
+        // CRITICAL PERFORMANCE FIX: "Thinking" models usually struggle with forced JSON Mode.
+        // We set jsonMode: false and rely on 'safeJsonParse' to extract the JSON block.
         const architectResponseText = await withBackoff(
           () => callGemini({
             prompt: `CONVERSATION HISTORY:\n${historyCtx}\n\nUSER INTENT:\n${originalInput}`,
             systemInstruction: GET_ARCHITECT_PROMPT(critiqueHistory, memoryContext, globalContext, targetModel),
-            jsonMode: true,
+            jsonMode: false, // DISABLED JSON MODE TO ALLOW THINKING
             attachments,
             signal
           }),
@@ -444,7 +447,7 @@ export async function battlePrompts(promptA: string, promptB: string, context: s
     }),
     () => { }
   );
-  return safeJsonParse<BattleResult>(responseText, BattleResultSchema);
+  return safeJsonParse(responseText, BattleResultSchema) as BattleResult;
 }
 
 /**
@@ -549,7 +552,7 @@ export async function verifyHallucinations(input: string, output: string, source
     issues: z.array(z.string())
   });
 
-  return safeJsonParse(responseText, schema);
+  return safeJsonParse(responseText, schema) as { score: number, issues: string[] };
 }
 
 

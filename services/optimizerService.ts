@@ -28,10 +28,10 @@ export const OptimizerService = {
      * Evolves a winning prompt into a superior version using Judge's feedback.
      */
     async evolvePrompt(params: EvolutionParams): Promise<EvolutionResult> {
-        const { winnerPrompt, loserPrompt, judgeReasoning, failedCases, history } = params;
+        const { winnerPrompt, loserPrompt, judgeReasoning, failedCases = [], history = [] } = params;
 
         // Serialize history for the prompt
-        const historyContext = history && history.length > 0
+        const historyContext = history.length > 0
             ? history.map(h => `[Previous Interaction]: ${h.message}\n(Version ${h.version})`).join('\n\n')
             : "No previous trajectory.";
 
@@ -50,7 +50,7 @@ export const OptimizerService = {
         ${judgeReasoning}
 
         [FAILED TEST CASES (Environmental Failures)]:
-        ${failedCases.join('\n---\n')}
+        ${(failedCases || []).join('\n---\n')}
 
         [TRAJECTORY HISTORY]:
         ${historyContext}
@@ -64,9 +64,6 @@ export const OptimizerService = {
                 temperature: 0.7
             });
 
-            // callGemini returns the string directly
-            const text = typeof response === 'string' ? response : JSON.stringify(response);
-
             // Parse using the new Unity Evolution Schema
             const UnitySchema = z.object({
                 master_mutation: z.object({
@@ -75,12 +72,8 @@ export const OptimizerService = {
                 })
             });
 
-            // Extract JSON
-            const jsonMatch = text.match(/\{[\s\S]*\}/);
-            if (!jsonMatch) throw new Error("No JSON found in Optimizer response");
-
-            const parsed = JSON.parse(jsonMatch[0]);
-            return UnitySchema.parse(parsed);
+            // Use robust safeJsonParse instead of manual match
+            return safeJsonParse(response, UnitySchema) as EvolutionResult;
 
         } catch (error) {
             console.error("Optimization Error:", error);

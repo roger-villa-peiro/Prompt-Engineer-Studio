@@ -18,8 +18,11 @@ interface JudgeCandidate {
 
 const JURY_POOLS = {
     // Phase 1 Judge: Gemini 2.5 Pro (Only)
+    // Phase 1 Judge: Gemini 2.5 Pro (With Retry & Fallback)
     PRIMARY: [
-        { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'google' }
+        { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'google' },
+        { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro (Retry)', provider: 'google' },
+        { id: 'openai/gpt-oss-120b', name: 'GPT OSS 120B (Backup)', provider: 'groq' }
     ] as JudgeCandidate[],
 
     // Phase 2 Judge: 3-Layer Backup System

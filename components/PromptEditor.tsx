@@ -13,6 +13,7 @@ import { FileItem, Attachment } from '../types';
 import FileTree from './FileTree';
 import SaveVersionModal from './SaveVersionModal';
 import DebuggerConsole from './DebuggerConsole';
+import { ThinkingViewer } from './ThinkingViewer';
 
 interface Props {
   content: string;
@@ -673,10 +674,7 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
                     {showReasoning && optResult?.metadata && (
                       <div className="p-4 bg-black/40 border-t border-white/5 text-xs text-slate-400 font-mono space-y-2 animate-in slide-in-from-top-2">
                         {optResult.metadata.thinkingProcess && (
-                          <div className="mb-4 p-3 bg-purple-900/10 border border-purple-500/20 rounded-lg text-purple-200/80">
-                            <strong className="block text-purple-400 mb-1 uppercase text-[10px]">Chain of Thought:</strong>
-                            {optResult.metadata.thinking_process}
-                          </div>
+                          <ThinkingViewer thinkingProcess={optResult.metadata.thinkingProcess} />
                         )}
                         <div className="grid grid-cols-2 gap-4">
                           <div>
