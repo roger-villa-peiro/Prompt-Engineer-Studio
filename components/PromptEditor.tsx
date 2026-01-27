@@ -1,8 +1,8 @@
+import SyntheticGenerator from './SyntheticGenerator';
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { optimizePrompt, runPrompt, InterviewerResponse, OptimizationResult, ChatMessage } from '../services/geminiService';
-import { classifyIntent } from '../services/routerService'; // ROUTER INTEGRATION
-import { detectVibeFromFiles, getVibeString } from '../services/vibeService'; // VIBE CODER
+import { optimizePrompt, runPrompt, ChatMessage, OptimizationResult } from '../services/geminiService';
+import { classifyIntent } from '../services/routerService';
 import { EvaluationService, EvaluationResult } from '../services/evaluationService';
 import { extractVariables, parseContextVariables } from '../utils/promptUtils';
 import { EvaluationDashboard } from './EvaluationDashboard';
@@ -12,10 +12,16 @@ import { ExportModal } from './ExportModal';
 import { RichPromptEditor } from './RichPromptEditor';
 import { openDirectory, readFileContent } from '../services/fileService';
 import { FileItem, Attachment } from '../types';
-import FileTree from './FileTree';
 import SaveVersionModal from './SaveVersionModal';
 import DebuggerConsole from './DebuggerConsole';
-import { ThinkingViewer } from './ThinkingViewer';
+import DiffView from './DiffView';
+import SpecStageViewer from './SpecStageViewer';
+import { AI_CONFIG } from '../config/aiConfig';
+
+// REFACTOR: Imported Sub-components
+import { EditorSidebar } from './editor/EditorSidebar';
+import { EditorToolbar } from './editor/EditorToolbar';
+import { ThinkingPanel } from './editor/ThinkingPanel';
 
 interface Props {
   content: string;
@@ -30,176 +36,27 @@ interface Props {
   setAttachments: (val: Attachment[]) => void;
 }
 
-const DiffView: React.FC<{ original: string; modified: string }> = ({ original, modified }) => {
-  if (original.length > 20000 || modified.length > 20000) {
-    return (
-      <div className="flex h-full gap-4 p-4 text-slate-500 font-mono text-xs">
-        <div className="flex-1 overflow-auto border p-2 border-danger/20 rounded">
-          <div className="font-bold mb-2 text-danger">ORIGINAL</div>
-          <pre>{original}</pre>
-        </div>
-        <div className="flex-1 overflow-auto border p-2 border-success/20 rounded">
-          <div className="font-bold mb-2 text-success">PROPOSED</div>
-          <pre>{modified}</pre>
-        </div>
-      </div>
-    )
-  }
 
-  return (
-    <div className="flex flex-col sm:flex-row gap-4 h-full p-4 bg-background-dark/50">
-      <div className="flex-1 flex flex-col min-h-0">
-        <span className="text-[10px] font-black uppercase text-danger/50 mb-2 flex items-center gap-2">
-          <span className="material-symbols-outlined text-sm">remove_circle</span>
-          Original Version
-        </span>
-        <div className="flex-1 bg-surface-dark border-l-2 border-danger/20 rounded-r-xl p-4 text-sm font-mono text-slate-400 overflow-y-auto whitespace-pre-wrap break-words break-all opacity-80 shadow-inner">
-          {original}
-        </div>
-      </div>
-
-      <div className="hidden sm:flex flex-col justify-center text-primary/20">
-        <span className="material-symbols-outlined text-3xl">arrow_forward</span>
-      </div>
-
-      <div className="flex-1 flex flex-col min-h-0">
-        <span className="text-[10px] font-black uppercase text-success/50 mb-2 flex items-center gap-2">
-          <span className="material-symbols-outlined text-sm">add_circle</span>
-          Optimized Proposal
-        </span>
-        <div className="flex-1 bg-surface-dark border-l-2 border-success/40 rounded-r-xl p-4 text-sm font-mono text-success/90 overflow-y-auto whitespace-pre-wrap break-words break-all shadow-inner ring-1 ring-success/5">
-          {modified}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-
-const SpecStageViewer: React.FC<{
-  result: OptimizationResult;
-  onAdvance: (input: string) => void;
-  isBusy: boolean;
-}> = ({ result, onAdvance, isBusy }) => {
-  const [input, setInput] = useState('');
-  const stage = result.specStage;
-  const artifacts = result.artifacts;
-
-  return (
-    <div className="flex flex-col h-full bg-surface-dark border border-white/5 rounded-2xl overflow-hidden shadow-2xl">
-      {/* HEADER */}
-      <div className="bg-black/20 p-4 border-b border-white/5 flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-bold text-primary flex items-center gap-2 uppercase tracking-widest">
-            <span className="material-symbols-outlined">psychology</span>
-            Spec Architect Flow
-          </span>
-          <div className="flex gap-1">
-            {['REQUIREMENTS', 'DESIGN', 'TASKS', 'COMPLETE'].map((s, i) => {
-              const currentIdx = ['REQUIREMENTS', 'DESIGN', 'TASKS', 'COMPLETE'].indexOf(stage || '');
-              const mapIdx = ['REQUIREMENTS', 'DESIGN', 'TASKS', 'COMPLETE'].indexOf(s);
-              return (
-                <div key={s} className={`h-1.5 w-8 rounded-full transition-colors ${mapIdx <= currentIdx ? 'bg-primary' : 'bg-white/10'}`} />
-              )
-            })}
-          </div>
-        </div>
-        <div className="text-xl font-bold text-white">
-          {stage === 'REQUIREMENTS' && "Requirements Gathering"}
-          {stage === 'DESIGN' && "System Architecture"}
-          {stage === 'TASKS' && "Execution Plan"}
-        </div>
-      </div>
-
-      {/* CONTENT */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
-
-        {stage === 'REQUIREMENTS' && artifacts?.requirements && (
-          <div className="space-y-4 animate-in slide-in-from-right-4">
-            <div className="p-4 bg-primary/10 border border-primary/20 rounded-xl">
-              <h3 className="text-sm font-bold text-primary mb-2">CLARIFICATION NEEDED</h3>
-              <p className="text-slate-300 text-sm mb-4">{artifacts.requirements.thought_process}</p>
-              <ul className="space-y-2">
-                {artifacts.requirements.questions.map((q, i) => (
-                  <li key={i} className="flex gap-2 text-sm text-white">
-                    <span className="text-primary font-bold">{i + 1}.</span>
-                    {q}
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <label className="text-xs uppercase font-bold text-slate-500 mb-2 block">Your Answers</label>
-              <textarea
-                className="w-full bg-black/20 border border-white/10 rounded-xl p-4 text-sm text-white focus:outline-none focus:border-primary/50 min-h-[150px]"
-                placeholder="Answer the questions here to proceed to design..."
-                value={input}
-                onChange={e => setInput(e.target.value)}
-              />
-            </div>
-          </div>
-        )}
-
-        {stage === 'DESIGN' && artifacts?.design && (
-          <div className="space-y-4 animate-in slide-in-from-right-4">
-            <div className="p-4 bg-surface-dark border border-white/5 rounded-xl">
-              <code className="text-xs font-mono text-cyan-400 block whitespace-pre-wrap">
-                {artifacts.design.mermaid_diagram}
-              </code>
-            </div>
-            <div className="p-4 bg-surface-dark border border-white/5 rounded-xl">
-              <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Data Structure</h4>
-              <pre className="text-xs text-slate-300 font-mono whitespace-pre-wrap">{artifacts.design.data_models}</pre>
-            </div>
-            <div className="p-4 bg-purple-500/10 border border-purple-500/20 rounded-xl">
-              <p className="text-sm text-purple-200">Review the design above. Use the chat to request changes, or click approve to generate tasks.</p>
-            </div>
-          </div>
-        )}
-
-        {stage === 'TASKS' && artifacts?.tasks && (
-          <div className="space-y-4 animate-in slide-in-from-right-4">
-            {artifacts.tasks.tasks.map(t => (
-              <div key={t.id} className="p-4 bg-surface-dark border border-white/5 rounded-xl flex gap-3">
-                <div className="size-6 rounded-full border-2 border-slate-600 flex items-center justify-center text-xs font-bold text-slate-500">{t.id}</div>
-                <div>
-                  <h4 className="font-bold text-white text-sm">{t.title}</h4>
-                  <ul className="mt-2 text-xs text-slate-400 space-y-1 list-disc pl-4">
-                    {t.steps.map((s, i) => <li key={i}>{s}</li>)}
-                  </ul>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-      </div>
-
-      {/* FOOTER */}
-      <div className="p-4 border-t border-white/5 bg-black/20 flex justify-end gap-3">
-        <button className="px-4 py-2 rounded-lg text-xs font-bold text-slate-400 hover:text-white" disabled={isBusy}>
-          Request Changes
-        </button>
-        <button
-          className="px-6 py-2 rounded-lg bg-primary hover:bg-primary-hover text-white font-bold text-xs shadow-lg shadow-primary/20 transition-all flex items-center gap-2"
-          onClick={() => onAdvance(input || "Approved")}
-          disabled={isBusy || (stage === 'REQUIREMENTS' && !input.trim())}
-        >
-          {isBusy ? 'Thinking...' : (stage === 'TASKS' ? 'Finalize' : 'Proceed')}
-          <span className="material-symbols-outlined text-sm">arrow_forward</span>
-        </button>
-      </div>
-    </div>
-  );
-};
-
-
-const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, onImport, addToast, contextData, setContextData, attachments, setAttachments }) => {
+const PromptEditor: React.FC<Props> = ({
+  content,
+  setContent,
+  onSave,
+  onExport,
+  onImport,
+  addToast,
+  contextData,
+  setContextData,
+  attachments,
+  setAttachments
+}) => {
+  // ZERO-CONFIG STATE
+  const [zeroConfigMode, setZeroConfigMode] = useState(true);
+  const [inferredType, setInferredType] = useState<string>('');
   const navigate = useNavigate();
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [abortController, setAbortController] = useState<AbortController | null>(null);
-  const [selectedModel, setSelectedModel] = useState('gemini-3-pro-preview');
+  const [selectedModel, setSelectedModel] = useState<string>(AI_CONFIG.AVAILABLE_MODELS.POWER);
 
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [evalResult, setEvalResult] = useState<EvaluationResult | null>(null);
@@ -214,16 +71,15 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
   const [showTemplates, setShowTemplates] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [showContext, setShowContext] = useState(false);
+  const [showSyntheticGenerator, setShowSyntheticGenerator] = useState(false);
 
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [commitMessage, setCommitMessage] = useState('Version Refinement');
   const [isProcessingFile, setIsProcessingFile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Hydration Guard
   const [isInitialized, setIsInitialized] = useState(false);
 
-  // METADATA & PERSISTENCE
   const [optResult, setOptResult] = useState<OptimizationResult | null>(() => {
     const saved = localStorage.getItem('antigravity_last_result');
     return saved ? JSON.parse(saved) : null;
@@ -247,18 +103,18 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
   const isBusy = isOptimizing || isTesting || isLoadingFile || isScanning || isEvaluating;
   const extractedVarsFromContent = useMemo(() => extractVariables(content), [content]);
 
-  // Initialization Effect
   useEffect(() => {
     setIsInitialized(true);
   }, []);
 
-  // PERSISTENCE ENGINE
   useEffect(() => {
     if (!content && !isInitialized) return;
-
-    localStorage.setItem('antigravity_active_prompt', content);
-    localStorage.setItem('antigravity_chat_history', JSON.stringify(chatHistory));
-    if (optResult) localStorage.setItem('antigravity_last_result', JSON.stringify(optResult));
+    const handler = setTimeout(() => {
+      localStorage.setItem('antigravity_active_prompt', content);
+      localStorage.setItem('antigravity_chat_history', JSON.stringify(chatHistory));
+      if (optResult) localStorage.setItem('antigravity_last_result', JSON.stringify(optResult));
+    }, 1000);
+    return () => clearTimeout(handler);
   }, [content, chatHistory, optResult, isInitialized]);
 
   useEffect(() => {
@@ -311,11 +167,28 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
         });
       }
 
-      // 1. ROUTER V2: CLASSIFY INTENT & SUBTYPE
       onProgress('ROUTER', 'Detectando intención y arquetipo...');
       const historyCtx = historyToUse.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
       const routerResult = await classifyIntent(content, historyCtx);
       onProgress('ROUTER', `Modo: ${routerResult.mode} | SubTipo: ${routerResult.subType || 'GENERAL'}`);
+
+      let actualSubType = routerResult.subType;
+
+      // ZERO-CONFIG INFERENCE OVERRIDE
+      if (zeroConfigMode && !skipInterviewer) {
+        // If Zero-Config is ON, we might refine the subType or skip user interview
+        // AgentOrchestrator instance for inference
+        const { AgentOrchestrator } = await import('../services/agentOrchestrator');
+        // Simple heuristic: if we inferred something specific, use it.
+        // But logic is cleaner inside optimizePrompt if we pass the flag or handle it here.
+        // Let's handle it here:
+        const orchestrator = new AgentOrchestrator();
+        const inference = await orchestrator.inferTaskType(content);
+        setInferredType(inference);
+        actualSubType = inference;
+        onProgress('ANALYSIS', `Zero-Config: Inferred type '${inference}'`);
+        addToast(`Auto-Configured: ${inference}`, 'success');
+      }
 
       const result = await optimizePrompt(
         content,
@@ -323,32 +196,34 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
         onProgress,
         contextData,
         {
-          skipInterviewer,
+          skipInterviewer: skipInterviewer || zeroConfigMode, // Skip chat in Zero-Config
           model: selectedModel,
           signal: controller.signal,
           attachments,
-          subType: routerResult.subType, // Inject Specialist DNA
-          vibeContext: contextData // VIBE CODER INJECTION
+          subType: actualSubType,
+          vibeContext: contextData
         }
       );
 
       if ('refinedPrompt' in result) {
-        setProposedContent(result.refinedPrompt);
-        setOptResult(result);
-        if (result.partialSuccess) addToast('Recuperación parcial activada.', 'info');
+        // OptimizationResult (Success)
+        const optRes = result as OptimizationResult; // Type assertion since it matched property
+        setProposedContent(optRes.refinedPrompt);
+        setOptResult(optRes);
+        if (optRes.partialSuccess) addToast('Recuperación parcial activada.', 'info');
         else addToast('Arquitectura refinada.', 'success');
 
-        if (result.metadata.criticScore > 85) {
+        if (optRes.metadata.criticScore > 85) {
           setShowReasoning(true);
         }
-
         setChatHistory([]);
       } else if (result.status === 'NEEDS_CLARIFICATION') {
+        const intRes = result; // Explicitly handled
         setChatHistory(prev => [...prev,
         { role: 'user', content },
-        { role: 'assistant', content: result.clarification_question || '' }
+        { role: 'assistant', content: intRes.clarification_question || '' }
         ]);
-        addToast(`IA: ${result.clarification_question}`, 'info');
+        addToast(`IA: ${intRes.clarification_question}`, 'info');
       }
     } catch (err: any) {
       if (err.message === 'ABORTED' || err.name === 'AbortError') {
@@ -421,45 +296,32 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
     if (!files || files.length === 0) return;
 
     setIsProcessingFile(true);
-    let processedCount = 0;
     const newAttachments: Attachment[] = [];
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      try {
-        const reader = new FileReader();
-        const base64Promise = new Promise<string>((resolve, reject) => {
-          reader.onload = () => {
-            const result = reader.result as string;
-            // Get just the base64 part
-            const base64 = result.split(',')[1];
-            resolve(base64);
-          };
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-
-        const base64 = await base64Promise;
-
-        newAttachments.push({
-          id: Math.random().toString(36).substr(2, 9),
-          name: file.name,
-          type: file.type,
-          data: base64
-        });
-
-        processedCount++;
-      } catch (err) {
-        console.error("File processing error:", err);
-        addToast(`Failed to process ${file.name}`, 'error');
-      }
+      newAttachments.push({
+        id: Math.random().toString(36).substr(2, 9),
+        name: file.name,
+        type: file.type,
+        file: file,
+        previewUrl: URL.createObjectURL(file)
+      });
     }
 
     setAttachments([...attachments, ...newAttachments]);
     setIsProcessingFile(false);
-    addToast(`${processedCount} files attached`, 'success');
+    addToast(`${files.length} files attached`, 'success');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
+
+  useEffect(() => {
+    return () => {
+      attachments.forEach(att => {
+        if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
+      });
+    }
+  }, [attachments]);
 
   const removeAttachment = (id: string) => {
     setAttachments(attachments.filter(a => a.id !== id));
@@ -472,9 +334,8 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
     setEvalResult(null);
 
     try {
-      // FIX: Parse variables defined in context (e.g. {{text}}=...)
       const contextVars = parseContextVariables(contextData);
-      const runtimeVars = { ...vars, ...contextVars }; // Overlay context variables on top of console vars
+      const runtimeVars = { ...vars, ...contextVars };
 
       const output = await runPrompt(content, runtimeVars);
       const result = await EvaluationService.evaluateOutput(content, output, contextData);
@@ -490,116 +351,42 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
   return (
     <div className="flex h-screen bg-background-dark overflow-hidden">
       <OnboardingTour />
+      {showSyntheticGenerator && (
+        <div className="absolute inset-0 z-50 bg-background-dark/90 p-8 flex items-center justify-center animate-in fade-in duration-200">
+          <div className="w-full max-w-4xl h-full max-h-[85vh]">
+            <SyntheticGenerator onClose={() => setShowSyntheticGenerator(false)} addToast={addToast} />
+          </div>
+        </div>
+      )}
       {showTemplates && <TemplateSelector onSelect={setContent} onClose={() => setShowTemplates(false)} />}
       {showExport && <ExportModal content={content} onClose={() => setShowExport(false)} />}
 
-      {/* File Sidebar */}
-      <aside className={`transition-all duration-300 border-r border-white/5 bg-background-dark flex flex-col overflow-hidden ${sidebarOpen ? 'w-64' : 'w-0'}`}>
-        <div className="p-4 border-b border-white/5 flex items-center justify-between min-w-[16rem]">
-          <span className="text-[10px] font-black uppercase text-slate-500">Project Files</span>
-          <button
-            onClick={() => setSidebarOpen(false)}
-            className="size-6 flex items-center justify-center rounded-full hover:bg-white/10"
-            disabled={isBusy}
-          >
-            <span className="material-symbols-outlined text-[16px]">chevron_left</span>
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-2 min-w-[16rem]">
-          {rootFolder && <FileTree items={rootFolder.children || []} onFileClick={handleFileClick} disabled={isBusy} />}
-        </div>
-      </aside>
+      {/* REFACTOR: Sidebar Component */}
+      <EditorSidebar
+        isOpen={sidebarOpen}
+        setIsOpen={setSidebarOpen}
+        isBusy={isBusy}
+        rootFolder={rootFolder}
+        onFileClick={handleFileClick}
+      />
 
-      {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
-        <nav className="flex items-center px-4 py-3 justify-between bg-background-dark border-b border-white/5 shrink-0 gap-4">
-          <div className="flex gap-2">
-            <button
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-              className={`size-10 flex items-center justify-center rounded-full hover:bg-white/10 ${sidebarOpen ? 'text-primary' : ''}`}
-            >
-              <span className="material-symbols-outlined text-[20px]">side_navigation</span>
-            </button>
-            <button
-              onClick={() => setShowTemplates(true)}
-              className={`size-10 flex items-center justify-center rounded-full hover:bg-white/10 ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
-              disabled={isBusy}
-              title="Template Library"
-            >
-              <span className="material-symbols-outlined text-[20px]">extension</span>
-            </button>
-            <button
-              onClick={handleOpenProject}
-              className={`size-10 flex items-center justify-center rounded-full hover:bg-white/10 ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
-              disabled={isBusy}
-              title="Open Project Folder"
-            >
-              <span className="material-symbols-outlined text-[20px]">folder_open</span>
-            </button>
-            <button
-              onClick={() => navigate('/versions')}
-              className={`size-10 flex items-center justify-center rounded-full hover:bg-white/10 ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
-              disabled={isBusy}
-              title="Version History"
-            >
-              <span className="material-symbols-outlined text-[20px]">history</span>
-            </button>
-          </div>
 
-          <div className="hidden sm:flex flex-col items-center">
-            <h1 className="text-sm font-bold tracking-tight">Antigravity Architect</h1>
-            <div className="flex gap-2 items-center">
-              <span className="text-[8px] text-primary font-black uppercase tracking-[0.3em]">Cognitive Intelligence Tier</span>
-              <select
-                value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
-                className="bg-black/20 text-[8px] text-slate-400 border border-white/5 rounded px-1 py-0.5 outline-none hover:bg-black/40 cursor-pointer"
-              >
-                <option value="gemini-3-flash-preview">Gemini 3 Flash (Fast)</option>
-                <option value="gemini-3-pro-preview">Gemini 3 Pro (Thinking)</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowExport(true)}
-              className={`size-10 flex items-center justify-center rounded-full hover:bg-white/10 text-slate-300 ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
-              disabled={isBusy}
-              title="Export to Code"
-            >
-              <span className="material-symbols-outlined text-[20px]">ios_share</span>
-            </button>
-            <button
-              onClick={() => navigate('/compare')}
-              className={`size-10 flex items-center justify-center rounded-full hover:bg-white/10 text-cyan-400 ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
-              disabled={isBusy}
-              title="Multi-Model Comparison"
-            >
-              <span className="material-symbols-outlined">layers</span>
-            </button>
-            <button
-              onClick={() => navigate('/battle', {
-                state: {
-                  contentA: content,
-                  contentB: proposedContent || ''
-                }
-              })}
-              className={`size-10 flex items-center justify-center rounded-full hover:bg-white/10 text-warning ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
-              disabled={isBusy}
-            >
-              <span className="material-symbols-outlined">swords</span>
-            </button>
-            <button
-              onClick={() => setShowSaveModal(true)}
-              className={`bg-primary/10 text-primary font-bold text-xs px-4 py-2 rounded-full hover:bg-primary/20 transition-all flex items-center gap-2 ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
-              disabled={isBusy}
-            >
-              <span className="material-symbols-outlined text-[18px]">save</span>
-              <span>Save</span>
-            </button>
-          </div>
-        </nav>
+        {/* REFACTOR: Toolbar Component */}
+        <EditorToolbar
+          sidebarOpen={sidebarOpen}
+          setSidebarOpen={setSidebarOpen}
+          setShowTemplates={setShowTemplates}
+          handleOpenProject={handleOpenProject}
+          currentContent={content}
+          proposedContent={proposedContent}
+          setShowExport={setShowExport}
+          setShowSaveModal={setShowSaveModal}
+          setShowSyntheticGenerator={setShowSyntheticGenerator}
+          isBusy={isBusy}
+          selectedModel={selectedModel}
+          setSelectedModel={setSelectedModel}
+        />
 
         <div className="flex-1 overflow-y-auto px-4 pt-4 pb-48 relative scroll-smooth hide-scrollbar">
 
@@ -631,12 +418,27 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
             <span className="px-4 py-2 text-[10px] font-black text-slate-500 uppercase tracking-widest">
               {proposedContent ? 'Comparing Refinement' : 'Prompt Editor'}
             </span>
+
+            {/* ZERO-CONFIG TOGGLE */}
+            {!proposedContent && (
+              <div
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all cursor-pointer ${zeroConfigMode ? 'bg-primary/10 border-primary/50' : 'bg-white/5 border-white/10 opacity-60 hover:opacity-100'}`}
+                onClick={() => setZeroConfigMode(!zeroConfigMode)}
+              >
+                <div className={`w-8 h-4 rounded-full relative transition-colors ${zeroConfigMode ? 'bg-primary' : 'bg-slate-600'}`}>
+                  <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-transform ${zeroConfigMode ? 'left-4.5' : 'left-0.5'}`} style={{ left: zeroConfigMode ? '18px' : '2px' }} />
+                </div>
+                <span className={`text-[10px] font-bold uppercase ${zeroConfigMode ? 'text-primary' : 'text-slate-400'}`}>
+                  Zero-Config Mode {zeroConfigMode && inferredType && <span className="opacity-70">({inferredType})</span>}
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-col lg:flex-row gap-6 h-[70vh]">
             {/* LEFT COLUMN: EDITOR */}
             <div className={`flex flex-col transition-all duration-500 ${proposedContent ? 'lg:w-[45%]' : 'w-full'}`}>
-              <div className="flex-1 bg-surface-dark border border-white/5 rounded-2xl overflow-hidden shadow-2xl flex flex-col relative group">
+              <div className="flex-1 glass-panel rounded-2xl overflow-hidden flex flex-col relative group">
                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-primary via-secondary to-primary opacity-0 bg-[length:200%_100%] transition-opacity duration-300 animate-shimmer" style={{ opacity: isOptimizing ? 1 : 0 }} />
 
                 <div className="flex-1 bg-surface-dark border-r border-white/5 relative flex flex-col">
@@ -729,18 +531,14 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
                     {/* Action Bar */}
                     <div className="p-4 border-t border-white/5 flex flex-col gap-3 bg-background-dark/50 backdrop-blur-sm z-20">
 
-                      {/* THINKING INDICATOR */}
-                      {isOptimizing && progressLog.length > 0 && (
-                        <div className="mb-2 flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2">
-                          <div className="relative flex h-3 w-3">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-3 w-3 bg-primary"></span>
-                          </div>
-                          <span className="text-xs font-mono text-primary animate-pulse">
-                            {progressLog[progressLog.length - 1].replace(/^\[.*?\]\s*/, '')}
-                          </span>
-                        </div>
-                      )}
+                      {/* REFACTOR: Thinking Panel */}
+                      <ThinkingPanel
+                        isOptimizing={isOptimizing}
+                        progressLog={progressLog}
+                        optResult={optResult}
+                        showReasoning={showReasoning}
+                        setShowReasoning={setShowReasoning}
+                      />
 
                       <div className="flex gap-3">
                         {isOptimizing ? (
@@ -754,7 +552,7 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
                         ) : (
                           <button
                             onClick={() => handleOptimize(false)}
-                            className={`flex-1 bg-gradient-to-r from-primary to-secondary hover:brightness-110 text-white font-bold py-3 rounded-xl transition-all shadow-[0_0_20px_rgba(79,70,229,0.3)] flex items-center justify-center gap-2 group/btn ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            className={`flex-1 bg-gradient-to-r from-primary via-primary-dark to-primary bg-[length:200%_100%] animate-shimmer hover:brightness-110 text-white font-bold py-3 rounded-xl transition-all shadow-[0_0_20px_rgba(79,70,229,0.3)] flex items-center justify-center gap-2 group/btn ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
                             disabled={isBusy}
                           >
                             <span className="material-symbols-outlined group-hover/btn:scale-110 transition-transform">auto_awesome</span>
@@ -809,39 +607,7 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
                   </div>
                 )}
 
-                {/* Reasoning Panel */}
-                <div className="border-t border-white/5 bg-black/20 text-left">
-                  <button
-                    onClick={() => setShowReasoning(!showReasoning)}
-                    className="w-full p-3 flex items-center justify-between text-xs font-bold text-slate-500 hover:text-slate-300 transition-colors uppercase tracking-widest"
-                  >
-                    <span>AI REASONING & LOGIC</span>
-                    <span className={`material-symbols-outlined transition-transform ${showReasoning ? 'rotate-180' : ''}`}>expand_more</span>
-                  </button>
-                  {showReasoning && optResult?.metadata && (
-                    <div className="p-4 bg-black/40 border-t border-white/5 text-xs text-slate-400 font-mono space-y-2 animate-in slide-in-from-top-2">
-                      {optResult.metadata.thinkingProcess && (
-                        <ThinkingViewer thinkingProcess={optResult.metadata.thinkingProcess} />
-                      )}
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <strong className="block text-slate-500 mb-1">SELECTED FRAMEWORK</strong>
-                          <span className="text-primary">{optResult.metadata.thinkingProcess ? "Dynamic Chain-of-Thought" : "Standard"}</span>
-                        </div>
-                        <div>
-                          <strong className="block text-slate-500 mb-1">CRITIC SCORE</strong>
-                          <span className={optResult.metadata.criticScore > 80 ? 'text-success' : 'text-warning'}>{optResult.metadata.criticScore}/100</span>
-                        </div>
-                      </div>
-                      <div>
-                        <strong className="block text-slate-500 mb-1">CHANGES APPLIED</strong>
-                        <ul className="list-disc pl-4 space-y-1">
-                          {(optResult.metadata.changesMade || []).map((c, i) => <li key={i}>{c}</li>)}
-                        </ul>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                {/* Reasoning Panel Re-used? No, main editor logic has handling above */}
               </div>
             )}
           </div>
@@ -849,7 +615,7 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
           {/* Evaluation Dashboard */}
           {evalResult && (
             <div className="mt-8 animate-in slide-in-from-bottom-4">
-              <EvaluationDashboard result={evalResult} />
+              <EvaluationDashboard result={evalResult} isEvaluating={isEvaluating} />
             </div>
           )}
 
@@ -857,11 +623,12 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
           {consoleOpen && (
             <DebuggerConsole
               isOpen={consoleOpen}
+              setIsOpen={setConsoleOpen}
+              isTesting={isBusy}
               onClose={() => setConsoleOpen(false)}
-              logs={progressLog}
               testResult={testResult}
-              vars={vars}
-              setVars={setVars}
+              variables={vars}
+              setVariables={setVars}
               onRunTest={handleTest}
               isBusy={isBusy}
             />
@@ -876,7 +643,7 @@ const PromptEditor: React.FC<Props> = ({ content, setContent, onSave, onExport, 
           isOpen={showSaveModal}
           onClose={() => setShowSaveModal(false)}
           onSave={(msg, rating) => {
-            onSave(msg, rating);
+            onSave(msg, rating === null ? undefined : rating);
             setShowSaveModal(false);
           }}
           initialMessage={commitMessage}

@@ -1,3 +1,4 @@
+import { logger } from "./loggerService";
 import { callGemini, safeJsonParse } from "./geminiService";
 import { z } from "zod";
 
@@ -58,7 +59,7 @@ IMPORTANT: Respond ONLY with a JSON object. No markdown.
         return safeJsonParse(response, RouterResponseSchema);
 
     } catch (error) {
-        console.warn("Router Classification Failed, defaulting to SPEC mode for safety.", error);
+        logger.warn("Router Classification Failed, defaulting to SPEC mode for safety.", { error });
         // Fallback to Spec mode to ensure we don't miss complex requests
         return { mode: 'SPEC', confidence: 0.0 };
     }

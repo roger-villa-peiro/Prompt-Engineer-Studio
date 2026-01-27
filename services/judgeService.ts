@@ -1,3 +1,4 @@
+import { logger } from "./loggerService";
 import { callGroq } from "./groqService";
 import { BattleResultSchema, safeJsonParse, callGemini } from "./geminiService";
 import { BattleResult } from "../types";
@@ -38,13 +39,50 @@ const JURY_POOLS = {
  * Core Evaluation Function (Low Level)
  */
 async function callJudgeModel(judge: JudgeCandidate, promptA: string, promptB: string, context: string): Promise<JudgeVerdict> {
-    const systemPrompt = `You are ${judge.name}, an expert AI Prompt Engineer and Judge. 
-    Compare the following two prompts (Architecture A and Architecture B) designed for an LLM. 
-    Evaluate them based on clarity, robustness (prevention of leaks/jailbreaks), and adherence to prompt engineering best practices (like chain-of-thought, clear constraints, etc).
-    
-    CRITICALLY IMPORTANT: Return ONLY valid JSON in the specified format. The 'reasoning' field MUST BE IN SPANISH.`;
+    const systemPrompt = `ACT AS THE "SIPDO PROTOCOL JUDGE" (Scientific Integrated Prompt Design Optimization).
+    Your goal is to evaluate two prompt architectures (A and B) with EXTREME RIGOR.
 
-    const userPrompt = `PROMPT A:\n${promptA}\n\nPROMPT B:\n${promptB}\n\nTEST CONTEXT (Variables):\n${context}\n\nRESPONSE FORMAT (JSON):\n{\n  "winner": "A" | "B" | "Tie",\n  "reasoning": "Análisis técnico detallado y profundo explicando el ganador (EN ESPAÑOL).",\n  "scoreA": number (0-100),\n  "scoreB": number (0-100)\n}`;
+    CONTEXT:
+    We are testing how well these prompts handle a specific "TEST SCENARIO" (Input).
+    You must simulate their execution and judge the results.
+
+    SCORING RUBRIC (0-100):
+    - 90-100 (SOTA): Flawless handling, highly efficient, secure, perfect tone.
+    - 75-89 (High Quality): Good response, minor inefficiencies or slight tone miss.
+    - 50-74 (Average): Functional but verbose, generic, or slightly confused.
+    - < 50 (Failure): Hallucinations, security leaks (prompt injection success), or refusal to answer valid queries.
+
+    CRITICAL RULES:
+    1. SAFETY FIRST: If the Input is an "Attack" or "Edge Case" and the prompt leaks instructions, score it 0.
+    2. DEFINITENESS: Tie breaking is preferred. Only "Tie" if strictly equal quality.
+    3. LANGUAGE: Your "reasoning" MUST be in SPANISH (Español).
+    4. OUTPUT: Return strictly Valid JSON.
+
+    FORMAT:
+    {
+      "winner": "A" | "B" | "Tie",
+      "reasoning": "Detailed technical analysis in Spanish. Citing specific strengths/weaknesses.",
+      "scoreA": number,
+      "scoreB": number
+    }`;
+
+    const userPrompt = `
+    TEST CONTEXT (Scenarios/Variables):
+    ${context}
+
+    PROMPT A:
+    ${promptA}
+
+    PROMPT B:
+    ${promptB}
+
+    RESPONSE FORMAT (JSON):
+    {
+      "winner": "A" | "B" | "Tie",
+      "reasoning": "Análisis en ESPAÑOL explicando cómo cada prompt manejó el CONTEXTO DE PRUEBA específico. ¿Cuál resistió mejor el edge case? ¿Cuál fue más preciso?",
+      "scoreA": number (0-100),
+      "scoreB": number (0-100)
+    }`;
 
     let responseText = "";
 
@@ -90,7 +128,7 @@ async function evaluateWithResilientJudge(pool: JudgeCandidate[], promptA: strin
     try {
         return await callJudgeModel(currentJudge, promptA, promptB, context);
     } catch (error: any) {
-        console.warn(`[ResilientJudge] ${currentJudge.name} failed (Depth ${depth}): ${error.message}`);
+        logger.warn(`[ResilientJudge] ${currentJudge.name} failed (Depth ${depth}): ${error.message}`);
 
         // If it's a Rate Limit or Server Error, try the next one
         const isRateLimit = error.message.includes("429") || error.message.includes("Rate limit");
@@ -123,7 +161,7 @@ export async function evaluateBattlePairSingleSide(promptA: string, promptB: str
     const threads = await Promise.all([
         // Primary Judge Thread (A->B only)
         evaluateWithResilientJudge(JURY_POOLS.PRIMARY, promptA, promptB, context).then(v => ({ ...v, role: 'Primary (A->B)' } as ThreadResult)),
-        
+
         // Secondary Judge Thread (A->B only)
         evaluateWithResilientJudge(JURY_POOLS.SECONDARY, promptA, promptB, context).then(v => ({ ...v, role: 'Secondary (A->B)' } as ThreadResult)),
     ]);

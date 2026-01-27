@@ -1,3 +1,4 @@
+import { logger } from "./loggerService";
 import { callGemini, safeJsonParse } from "./geminiService";
 import { EVOLUTIONARY_BIOLOGIST_PROMPT } from "../config/systemPrompts";
 import { z } from "zod";
@@ -78,7 +79,7 @@ export const OptimizerService = {
             return safeJsonParse(response, UnitySchema) as EvolutionResult;
 
         } catch (error) {
-            console.error("Optimization Error:", error);
+            logger.error("Optimization Error:", error);
             // Fallback: Return the winner prompt as is if evolution fails
             return {
                 status: 'CONVERGED',

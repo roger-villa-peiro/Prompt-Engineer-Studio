@@ -8,14 +8,11 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3000,
       host: '0.0.0.0',
+      proxy: {
+        '/api': 'http://localhost:3001'
+      }
     },
     plugins: [react()],
-    define: {
-      'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-      'process.env.OPENAI_API_KEY': JSON.stringify(env.OPENAI_API_KEY),
-      'process.env.GROQ_API_KEY': JSON.stringify(env.GROQ_API_KEY)
-    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

@@ -36,21 +36,27 @@ Sistema de gestión del ciclo de vida del prompt (Timeline, Restauración, Diff 
 ### F. Gestión de Contexto Multimodal (Knowledge Base)
 **NUEVO**: Capacidad de inyectar conocimiento externo directamente en la "memoria de trabajo" de la IA.
 *   **Soporte de Archivos**: Carga de documentos PDF e Imágenes.
-*   **Procesamiento Nativo**: El modelo (Gemini 2.5) "ve" y "lee" los adjuntos para generar prompts contextuales, en lugar de solo pegar texto plano.
+*   **Procesamiento Nativo**: El modelo (Gemini 2.0 Flash / 3.0 Pro) "ve" y "lee" los adjuntos para generar prompts contextuales, en lugar de solo pegar texto plano.
+
+### G. Recursos de Datos (New)
+**Promptsfilter**: Una biblioteca curada de *System Prompts* filtrados de las principales herramientas de IA del mercado. Se utiliza como base de datos para:
+*   **Ingeniería Inversa**: Análisis de patrones exitosos en prompts comerciales.
+*   **Benchmarking**: Comparación de nuestros prompts generados contra "State of the Art" de la industria.
+*   **Inspiración**: Extracción de técnicas avanzadas (Thinking tags, XML structures) para el Arquitecto.
 
 ## 3. Arquitectura Técnica (V2 - AI Native)
 
 *   **Frontend**: React 19 + Vite + TailwindCSS.
 *   **Inteligencia Artificial**:
     *   **Router V2**: `Gemini 2.0 Flash` (Clasificación Semántica de Intención + Subtipos).
-    *   **Orchestrator**: `Gemini 2.5 Pro` (Thinking Logic, Unity Evolution).
+    *   **Orchestrator**: `Gemini 3.0 Pro Preview` (Thinking Logic, Unity Evolution).
     *   **Spec Architect**: Máquina de estados para diseño interactivo (Requirements -> Design -> Tasks).
 *   **Servicios Cognitivos**:
     *   `geminiService`: Orquestación y State Machine del Arquitecto.
     *   `routerService`: Gateway inteligente que decide el "Archetype" (Coding, Planning, Writing).
-    *   `vibeService`: **(Vibe Coder)** Detección automática del stack tecnológico (React, Tailwind, etc.) leyendo `package.json`.
-    *   `knowledgeService`: **(Parallel RAG)** Búsqueda simulada en paralelo para inyectar contexto fresco (Next.js 15, React 19).
-    *   `optimizerService`: Lógica genética para APE.
+    *   `vibeService`: **(Vibe Coder)** Detección automática del stack tecnológico (React, Tailwind, etc.) leyendo `package.json` y estructura de archivos.
+    *   `knowledgeService`: **(Parallel RAG)** Sistema de búsqueda simulada para inyectar contexto fresco (Next.js 15, React 19).
+    *   `optimizerService`: Lógica genética para APE (Unity Evolution).
 
 ## 4. Flujo de Trabajo Típico (V2)
 

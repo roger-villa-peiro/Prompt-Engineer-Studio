@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import PromptEditor from './components/PromptEditor';
 import History from './components/History';
 import ExperimentConfig from './components/ExperimentConfig';
@@ -8,8 +8,25 @@ import EvaluationResults from './components/EvaluationResults';
 import PromptBattle from './components/PromptBattle';
 import { ComparisonView } from './components/ComparisonView';
 import { SharedPromptView } from './components/SharedPromptView';
+import SignatureComposer from './components/SignatureComposer';
+import SecurityDashboard from './components/sentinel/SecurityDashboard';
 import { PromptVersion, ToastMessage, Attachment } from './types';
 import { supabase } from './src/services/supabaseClient';
+
+// Wrapper to handle navigation for the Forge
+const ForgeRoute: React.FC<{ setCurrentPrompt: (s: string) => void, addToast: any }> = ({ setCurrentPrompt, addToast }) => {
+  const navigate = useNavigate();
+  return (
+    <SignatureComposer
+      onSave={(prompt: string) => {
+        setCurrentPrompt(prompt);
+        addToast('Agent compiled successfully', 'success');
+        navigate('/');
+      }}
+      onCancel={() => navigate('/')}
+    />
+  );
+};
 
 const App: React.FC = () => {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -41,14 +58,8 @@ const App: React.FC = () => {
     localStorage.setItem('globalContext', contextData);
   }, [contextData]);
 
-  const [attachments, setAttachments] = useState<Attachment[]>(() => {
-    const saved = localStorage.getItem('globalAttachments');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  useEffect(() => {
-    localStorage.setItem('globalAttachments', JSON.stringify(attachments));
-  }, [attachments]);
+  // Performance: Do not persist huge attachments in LocalStorage
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
 
   // Load Versions from Supabase
   useEffect(() => {
@@ -174,7 +185,7 @@ const App: React.FC = () => {
 
   return (
     <HashRouter>
-      <div className="h-screen bg-background-dark text-white font-sans overflow-hidden flex flex-col">
+      <div className="h-screen bg-transparent text-text-primary font-sans overflow-hidden flex flex-col selection:bg-primary/30 antialiased">
         <Routes>
           <Route path="/" element={
             <PromptEditor
@@ -190,6 +201,9 @@ const App: React.FC = () => {
               setAttachments={setAttachments}
             />
           } />
+          <Route path="/forge" element={
+            <ForgeRoute setCurrentPrompt={setCurrentPrompt} addToast={addToast} />
+          } />
           <Route path="/versions" element={
             <History
               versions={versions}
@@ -201,6 +215,17 @@ const App: React.FC = () => {
           <Route path="/experiment/results" element={<EvaluationResults />} />
           <Route path="/battle" element={<PromptBattle versions={versions} addToast={addToast} />} />
           <Route path="/compare" element={<ComparisonView />} />
+          <Route path="/sentinel" element={
+            <SecurityDashboard
+              currentPrompt={currentPrompt}
+              onUpdatePrompt={(p: string) => {
+                setCurrentPrompt(p);
+                addToast('Security patch applied', 'success');
+              }}
+              addToast={addToast}
+              onClose={() => document.location.hash = '/'}
+            />
+          } />
           <Route path="/share/:token" element={
             <SharedPromptView onFork={(content) => {
               setCurrentPrompt(content);
@@ -213,14 +238,14 @@ const App: React.FC = () => {
         {/* Global Toast System */}
         <div className="fixed bottom-6 right-6 z-[100] flex flex-col gap-3 pointer-events-none">
           {toasts.map(toast => (
-            <div key={toast.id} className={`pointer-events-auto px-6 py-3 rounded-2xl shadow-2xl flex items-center gap-3 animate-in slide-in-from-right-10 border ${toast.type === 'success' ? 'bg-success/10 border-success text-success' :
-              toast.type === 'error' ? 'bg-danger/10 border-danger text-danger' :
-                'bg-primary/10 border-primary text-primary'
+            <div key={toast.id} className={`pointer-events-auto px-6 py-4 rounded-xl shadow-2xl flex items-center gap-3 animate-in slide-in-from-right-10 border backdrop-blur-xl ${toast.type === 'success' ? 'bg-success/10 border-success/50 text-success shadow-[0_0_15px_rgba(16,185,129,0.2)]' :
+              toast.type === 'error' ? 'bg-danger/10 border-danger/50 text-danger shadow-[0_0_15px_rgba(239,68,68,0.2)]' :
+                'bg-primary/10 border-primary/50 text-primary shadow-[0_0_15px_rgba(79,70,229,0.2)]'
               }`}>
-              <span className="material-symbols-outlined text-[18px]">
+              <span className="material-symbols-outlined text-[20px]">
                 {toast.type === 'success' ? 'check_circle' : toast.type === 'error' ? 'error' : 'info'}
               </span>
-              <span className="text-sm font-bold">{toast.text}</span>
+              <span className="text-sm font-bold tracking-wide">{toast.text}</span>
             </div>
           ))}
         </div>

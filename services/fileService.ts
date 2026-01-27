@@ -11,7 +11,7 @@ export async function openDirectory(): Promise<FileItem> {
 
   // @ts-expect-error - showDirectoryPicker is a modern API
   const handle: FileSystemDirectoryHandle = await window.showDirectoryPicker();
-  
+
   return {
     name: handle.name,
     kind: 'directory',
@@ -27,11 +27,10 @@ export async function openDirectory(): Promise<FileItem> {
  */
 async function readDirectory(handle: FileSystemDirectoryHandle): Promise<FileItem[]> {
   const entries: FileSystemHandle[] = [];
-  
-  // Convert async iterator to array for parallel processing
-  // Removed unused @ts-expect-error directive as values() is correctly typed in the environment.
-  for await (const entry of handle.values()) {
-    entries.push(entry);
+
+  // FileSystemDirectoryHandle values() is valid in modern browsers but missing in old DOM types
+  for await (const entry of (handle as any).values()) {
+    entries.push(entry as FileSystemHandle);
   }
 
   const children = await Promise.all(entries.map(async (entry): Promise<FileItem> => {
@@ -40,14 +39,14 @@ async function readDirectory(handle: FileSystemDirectoryHandle): Promise<FileIte
       kind: entry.kind as 'file' | 'directory',
       handle: entry as FileSystemFileHandle | FileSystemDirectoryHandle
     };
-    
+
     if (entry.kind === 'directory') {
       item.children = await readDirectory(entry as FileSystemDirectoryHandle);
     }
-    
+
     return item;
   }));
-  
+
   return children.sort((a, b) => {
     if (a.kind === b.kind) return a.name.localeCompare(b.name);
     return a.kind === 'directory' ? -1 : 1;

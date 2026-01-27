@@ -12,13 +12,8 @@ const ALL_MODELS = [
     { id: 'meta-llama/llama-4-maverick-17b-128e-instruct', name: 'Llama 4 Maverick (Groq)', provider: 'groq' },
 ];
 
-const AVAILABLE_MODELS = ALL_MODELS.filter(model => {
-    if (model.provider === 'gemini') return !!process.env.GEMINI_API_KEY;
-    if (model.provider === 'openai') return !!process.env.OPENAI_API_KEY;
-    if (model.provider === 'anthropic') return !!process.env.ANTHROPIC_API_KEY;
-    if (model.provider === 'groq') return !!process.env.GROQ_API_KEY;
-    return false;
-});
+// Models are now managed by the backend proxy. We assume they are available or the proxy will return an error.
+const AVAILABLE_MODELS = ALL_MODELS;
 
 export const ComparisonView: React.FC = () => {
     const navigate = useNavigate();

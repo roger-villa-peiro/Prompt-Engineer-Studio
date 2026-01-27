@@ -4,7 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { PromptVersion, BattleResult, SavedComparison } from '../types';
 import { runPrompt } from '../services/geminiService';
 import { evaluateBattlePair, evaluateBattlePairSingleSide } from '../services/judgeService';
-import { generateTestCases } from '../services/geminiService';
+import { sipdoService, SIPDOTestCase } from '../services/sipdoService';
 import { extractVariables } from '../utils/promptUtils';
 import { OptimizerService, EvolutionResult } from '../services/optimizerService';
 
@@ -37,6 +37,10 @@ const PromptBattle: React.FC<Props> = ({ versions, addToast }) => {
   // Evolution State
   const [isEvolving, setIsEvolving] = useState(false);
   const [evolutionResult, setEvolutionResult] = useState<EvolutionResult | null>(null);
+
+  // SIPDO Difficulty State
+  const [difficultyLevel, setDifficultyLevel] = useState(3);
+  const [sipdoPatches, setSipdoPatches] = useState<{ explanation: string, suggestedFix: string }[]>([]);
 
   // History State
   const [showHistory, setShowHistory] = useState(false);
@@ -187,8 +191,10 @@ const PromptBattle: React.FC<Props> = ({ versions, addToast }) => {
     setEvolutionResult(null);
 
     try {
-      addToast("Generating Synthetic Adversarial Data...", "info");
-      const testCases = await generateTestCases(contentA, contentB, JSON.stringify(varValues));
+      addToast(`Generating SIPDO Test Cases (Difficulty ${difficultyLevel}/10)...`, "info");
+      const sipdoCases = await sipdoService.generateProgressiveTests(contentA, contentB, difficultyLevel);
+      // Transform to expected format
+      const testCases = sipdoCases.map(c => ({ type: c.type, input: c.input }));
 
       // SORT: Edge Cases First (Hyperband Priority)
       // The service returns objects with { type: "Simple" | "Complex" | "Edge Case", input: "..." }
@@ -263,6 +269,7 @@ const PromptBattle: React.FC<Props> = ({ versions, addToast }) => {
 ${p1.reasoning}
 
 --- PHASE 2 (B vs A) ---
+(NOTE: In this phase, "Prompt A" is Candidate B, and "Prompt B" is Candidate A. This swap detects position bias.)
 ${p2.reasoning}
 ${winner === 'Inconclusive' ? '\n⚠️ POSITION BIAS DETECTED.' : ''}
         `.trim();
@@ -338,7 +345,7 @@ ${winner === 'Inconclusive' ? '\n⚠️ POSITION BIAS DETECTED.' : ''}
 
   return (
     <div className="flex flex-col h-full bg-background-dark overflow-hidden">
-      <header className="p-4 flex items-center justify-between border-b border-white/5 bg-background-dark/80 backdrop-blur-md sticky top-0 z-10 shrink-0">
+      <header className="p-4 flex items-center justify-between border-b border-white/5 bg-background-dark/80 backdrop-blur-xl sticky top-0 z-10 shrink-0">
         <div className="flex items-center gap-4">
           <button onClick={() => navigate('/')} className="size-10 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors">
             <span className="material-symbols-outlined">arrow_back</span>
@@ -349,7 +356,7 @@ ${winner === 'Inconclusive' ? '\n⚠️ POSITION BIAS DETECTED.' : ''}
           </div>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           <button
             onClick={() => setShowHistory(true)}
             className="bg-white/5 text-slate-300 font-bold px-4 py-3 rounded-2xl flex items-center gap-2 hover:bg-white/10 transition-all border border-white/5"
@@ -357,10 +364,27 @@ ${winner === 'Inconclusive' ? '\n⚠️ POSITION BIAS DETECTED.' : ''}
             <span className="material-symbols-outlined text-[20px]">history</span>
             History
           </button>
+
+          {/* SIPDO Difficulty Slider */}
+          <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-2xl px-4 py-2">
+            <span className="material-symbols-outlined text-primary text-[18px]">speed</span>
+            <span className="text-[9px] font-bold text-slate-400 uppercase">Difficulty</span>
+            <input
+              type="range"
+              min="1"
+              max="10"
+              value={difficultyLevel}
+              onChange={(e) => setDifficultyLevel(Number(e.target.value))}
+              className="w-20 h-1 accent-primary cursor-pointer"
+              disabled={isBattling}
+            />
+            <span className="text-primary font-mono font-bold text-sm w-6">{difficultyLevel}</span>
+          </div>
+
           <button
             onClick={startBattle}
             disabled={isBattling}
-            className="bg-primary text-white font-bold px-8 py-3 rounded-2xl flex items-center gap-2 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 shadow-xl shadow-primary/20"
+            className="bg-primary hover:bg-primary-dark text-white font-bold px-8 py-3 rounded-2xl flex items-center gap-2 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 shadow-[0_0_25px_rgba(79,70,229,0.4)]"
           >
             <span className="material-symbols-outlined text-[20px]">{isBattling ? 'sync' : 'gavel'}</span>
             {isBattling ? 'Running SIPDO Cycle...' : 'Start Battle'}

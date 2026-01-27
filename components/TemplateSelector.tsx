@@ -1,6 +1,15 @@
 import React, { useState } from 'react';
 
+import { ADVANCED_TEMPLATES } from '../data/templates';
+
 const TEMPLATES = [
+    ...ADVANCED_TEMPLATES.map((t: any) => ({
+        id: t.id,
+        category: t.category,
+        title: t.name,
+        description: t.description,
+        content: t.content
+    })),
     {
         id: 'code-gen',
         category: 'Development',

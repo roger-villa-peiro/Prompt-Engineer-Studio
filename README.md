@@ -5,7 +5,7 @@
 
 **Antigravity Architect** (formerly Prompt Engineer Studio) is a production-grade environment designed for Prompt Engineers who need more than a simple chat interface. It combines the utility of a code editor with the intelligence of an LLM evaluation pipeline.
 
-![Status](https://img.shields.io/badge/Status-Production_Ready-success) ![Stack](https://img.shields.io/badge/Stack-React_|_Supabase_|_Vite-blue)
+![Status](https://img.shields.io/badge/Status-Production_Ready-success) ![Stack](https://img.shields.io/badge/Stack-React_|_Supabase_|_Vite-blue) ![AI](https://img.shields.io/badge/AI-Gemini_3.0_Pro_Ready-purple)
 
 ## ✨ key Features
 

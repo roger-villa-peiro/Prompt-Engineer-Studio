@@ -1,3 +1,4 @@
+import { logger } from "./loggerService";
 import { callGemini, safeJsonParse } from "./geminiService";
 import { z } from "zod";
 
@@ -100,7 +101,7 @@ export const EvaluationService = {
             };
 
         } catch (e) {
-            console.error("Evaluation failed", e);
+            logger.error("Evaluation failed", e);
             // Fallback for failure
             criteria = {
                 coherence: 0,

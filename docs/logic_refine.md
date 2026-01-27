@@ -49,7 +49,7 @@ El sistema abandona el Markdown libre por una estructura XML rígida inspirada e
 #### 2. Estrategia Cognitiva Dinámica
 El Arquitecto analiza el modelo de destino (`targetModel`) y adapta via `optimizePromptFlow` la estrategia de razonamiento:
 
-*   **Para Thinking Models (ej. Gemini 2.5 Pro)**:
+*   **Para Thinking Models (ej. Gemini 3.0 Pro / 2.5 Pro)**:
     *   **Estrategia**: `XML_CLEAN_STRUCTURAL`.
     *   **Lógica**: Se suprime explícitamente el "Chain of Thought" forzado (`Don't use step-by-step`). Se confía en la capacidad nativa de razonamiento del modelo para evitar verborrea innecesaria.
 

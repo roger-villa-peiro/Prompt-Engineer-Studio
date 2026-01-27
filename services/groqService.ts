@@ -1,4 +1,7 @@
+import { logger } from "./loggerService";
+
 export interface GroqConfig {
+
     apiKey: string;
     model: string;
     temperature?: number;
@@ -10,11 +13,6 @@ export async function callGroq(
     config: Partial<GroqConfig> = {},
     systemInstruction?: string
 ): Promise<string> {
-    const apiKey = process.env.GROQ_API_KEY;
-    if (!apiKey) {
-        throw new Error("MISSING_API_KEY: Please add GROQ_API_KEY to your .env file.");
-    }
-
     const model = config.model || "llama-3.3-70b-versatile";
 
     const messages = [];
@@ -24,29 +22,28 @@ export async function callGroq(
     messages.push({ role: "user", content: prompt });
 
     try {
-        const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        const response = await fetch("/api/groq", {
             method: "POST",
             headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${apiKey}`
+                "Content-Type": "application/json"
             },
             body: JSON.stringify({
                 model: model,
                 messages: messages,
                 temperature: config.temperature ?? 0.7,
-                max_tokens: config.maxTokens,
+                maxTokens: config.maxTokens,
             })
         });
 
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
-            throw new Error(`GROQ_API_ERROR: ${response.status} - ${errorData.error?.message || response.statusText}`);
+            throw new Error(errorData.error || `GROQ_API_ERROR: ${response.status}`);
         }
 
         const data = await response.json();
         return data.choices?.[0]?.message?.content || "";
     } catch (error: any) {
-        console.error("Groq Call Failed:", error);
+        logger.error("Groq Call Failed:", error);
         throw new Error(error.message || "Unknown Groq Error");
     }
 }

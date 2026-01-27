@@ -1,4 +1,9 @@
 
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export interface PromptBlueprint {
   persona: string;
   task: string;
@@ -22,7 +27,7 @@ export interface PromptVersion {
 }
 
 export interface BattleResult {
-  winner: 'A' | 'B' | 'Tie';
+  winner: 'A' | 'B' | 'Tie' | 'Inconclusive';
   reasoning: string;
   scoreA: number;
   scoreB: number;
@@ -31,7 +36,7 @@ export interface BattleResult {
 
 export interface ToastMessage {
   id: string;
-  type: 'success' | 'error' | 'info';
+  type: 'success' | 'error' | 'info' | 'warning';
   text: string;
 }
 
@@ -63,7 +68,9 @@ export interface Attachment {
   id: string;
   name: string;
   type: string;
-  data: string; // base64
+  data?: string; // base64 (Optional now, used for API)
+  file?: File; // Raw file for performance
+  previewUrl?: string; // ObjectURL for UI
 }
 
 export interface SavedComparison {
@@ -74,4 +81,28 @@ export interface SavedComparison {
   scoreA: number;
   scoreB: number;
   winner: 'A' | 'B' | 'Tie' | 'Inconclusive';
+}
+
+// --- Signature Composer Types ---
+
+export interface SignatureField {
+  id: string; // for React keys
+  name: string;
+  type: 'string' | 'number' | 'boolean' | 'json' | 'list';
+  description?: string;
+  required: boolean;
+}
+
+export interface ReasoningStep {
+  id: string;
+  type: 'CoT' | 'ReAct' | 'Reflexion';
+  description: string;
+}
+
+export interface AgentSignature {
+  name: string;
+  description: string;
+  inputs: SignatureField[];
+  steps: ReasoningStep[];
+  outputs: SignatureField[];
 }
