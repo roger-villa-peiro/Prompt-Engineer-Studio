@@ -2,13 +2,15 @@ import { logger } from "./loggerService";
 import { callGemini, safeJsonParse } from "./geminiService";
 import { EVOLUTIONARY_BIOLOGIST_PROMPT } from "../config/systemPrompts";
 import { z } from "zod";
+import { applyStrategy, StrategyType } from "./strategiesService";
 
 interface EvolutionParams {
     winnerPrompt: string;
     loserPrompt: string;
     judgeReasoning: string;
-    failedCases?: string[]; // Optional: List of inputs that caused failure
-    history?: { version: string, message?: string }[]; // Trajectory
+    failedCases?: string[];
+    history?: { version: string, message?: string }[];
+    strategy?: StrategyType; // NEW: Apply a prompting strategy
 }
 
 export interface EvolutionResult {
@@ -30,12 +32,18 @@ export const OptimizerService = {
      * Evolves a winning prompt into a superior version using Judge's feedback.
      */
     async evolvePrompt(params: EvolutionParams): Promise<EvolutionResult> {
-        const { winnerPrompt, loserPrompt, judgeReasoning, failedCases = [], history = [] } = params;
+        const { winnerPrompt, loserPrompt, judgeReasoning, failedCases = [], history = [], strategy } = params;
 
         // Serialize history for the prompt
         const historyContext = history.length > 0
             ? history.map(h => `[Previous Interaction]: ${h.message}\n(Version ${h.version})`).join('\n\n')
             : "No previous trajectory.";
+
+        // Apply strategy if specified
+        const appliedStrategy = strategy ? applyStrategy('', strategy) : null;
+        const strategyGuidance = appliedStrategy && appliedStrategy.strategyName !== 'Ninguna'
+            ? `\n\n[PROMPTING STRATEGY TO EMBED]: ${appliedStrategy.strategyName}\nGuidance: The evolved prompt should incorporate elements of this style: ${appliedStrategy.modifiedSystemInstruction || 'N/A'}`
+            : '';
 
         const prompt = `
         ${EVOLUTIONARY_BIOLOGIST_PROMPT}
@@ -56,6 +64,7 @@ export const OptimizerService = {
 
         [TRAJECTORY HISTORY]:
         ${historyContext}
+        ${strategyGuidance}
         `;
 
         try {

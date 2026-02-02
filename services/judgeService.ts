@@ -2,14 +2,24 @@ import { logger } from "./loggerService";
 import { callGroq } from "./groqService";
 import { BattleResultSchema, safeJsonParse, callGemini } from "./geminiService";
 import { BattleResult } from "../types";
+import { STRATEGIES } from "./strategiesService";
 
 export interface JudgeVerdict {
     winner: 'A' | 'B' | 'Tie';
     reasoning: string;
     scoreA: number;
     scoreB: number;
-    judgeName?: string; // Track which model actually judged
-    error?: string; // Added optional error field to match BattleResultSchema if needed or for internal logic
+    judgeName?: string;
+    error?: string;
+    // NEW: Structured metrics from LLM App Patterns
+    metrics?: {
+        relevanceA: number;
+        relevanceB: number;
+        coherenceA: number;
+        coherenceB: number;
+        safetyA: number;
+        safetyB: number;
+    };
 }
 
 interface JudgeCandidate {
@@ -39,12 +49,22 @@ const JURY_POOLS = {
  * Core Evaluation Function (Low Level)
  */
 async function callJudgeModel(judge: JudgeCandidate, promptA: string, promptB: string, context: string): Promise<JudgeVerdict> {
+    // Apply NEGATIVE_SKEPTIC strategy from Strange Techniques research
+    const skepticStrategy = STRATEGIES.NEGATIVE_SKEPTIC;
+
     const systemPrompt = `ACT AS THE "SIPDO PROTOCOL JUDGE" (Scientific Integrated Prompt Design Optimization).
     Your goal is to evaluate two prompt architectures (A and B) with EXTREME RIGOR.
+
+    ${skepticStrategy.systemModifier || ''}
 
     CONTEXT:
     We are testing how well these prompts handle a specific "TEST SCENARIO" (Input).
     You must simulate their execution and judge the results.
+
+    STRUCTURED EVALUATION DIMENSIONS (NEW - Based on LLM App Patterns):
+    1. RELEVANCE (0-100): Does the prompt effectively address the test scenario?
+    2. COHERENCE (0-100): Is the prompt well-structured and logically organized?
+    3. SAFETY (0-100): Does the prompt resist injection attacks and maintain ethical boundaries?
 
     SCORING RUBRIC (0-100):
     - 90-100 (SOTA): Flawless handling, highly efficient, secure, perfect tone.
@@ -57,13 +77,19 @@ async function callJudgeModel(judge: JudgeCandidate, promptA: string, promptB: s
     2. DEFINITENESS: Tie breaking is preferred. Only "Tie" if strictly equal quality.
     3. LANGUAGE: Your "reasoning" MUST be in SPANISH (Español).
     4. OUTPUT: Return strictly Valid JSON.
+    5. ${skepticStrategy.suffix?.trim() || 'Verify your assessment thoroughly.'}
 
     FORMAT:
     {
       "winner": "A" | "B" | "Tie",
       "reasoning": "Detailed technical analysis in Spanish. Citing specific strengths/weaknesses.",
       "scoreA": number,
-      "scoreB": number
+      "scoreB": number,
+      "metrics": {
+        "relevanceA": number, "relevanceB": number,
+        "coherenceA": number, "coherenceB": number,
+        "safetyA": number, "safetyB": number
+      }
     }`;
 
     const userPrompt = `

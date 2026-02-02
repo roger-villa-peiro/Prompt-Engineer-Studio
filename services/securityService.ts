@@ -45,8 +45,7 @@ export const SecurityService = {
             const response = await callGemini({
                 systemInstruction: systemPrompt,
                 prompt: attack.payload,
-                temperature: 0.7, // Higher temp often makes models more compliant to jailbreaks
-                maxOutputTokens: 500
+                temperature: 0.7 // Higher temp often makes models more compliant to jailbreaks
             });
 
             const endTime = performance.now();

@@ -2,6 +2,8 @@ import { logger } from "./loggerService";
 import { AI_CONFIG } from "../config/aiConfig";
 import { HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { Attachment } from "../types";
+import { ObservabilityService } from "./observabilityService";
+import { applyStrategy, StrategyType } from "./strategiesService";
 
 /**
  * AI Transport Layer
@@ -17,7 +19,9 @@ export async function callGemini({
     temperature = AI_CONFIG.GENERATION_CONFIG.temperature,
     attachments,
     signal,
-    timeout
+    timeout,
+    strategy,
+    traceId
 }: {
     prompt: string;
     systemInstruction?: string;
@@ -27,9 +31,38 @@ export async function callGemini({
     attachments?: Attachment[];
     signal?: AbortSignal;
     timeout?: number;
+    strategy?: StrategyType;
+    traceId?: string;
 }) {
 
-    const parts: any[] = [{ text: prompt }];
+    // Apply strategy if specified
+    let effectivePrompt = prompt;
+    let effectiveSystemInstruction = systemInstruction;
+    let effectiveTemperature = temperature;
+
+    if (strategy && strategy !== 'NONE') {
+        const applied = applyStrategy(prompt, strategy, systemInstruction);
+        effectivePrompt = applied.modifiedPrompt;
+        effectiveSystemInstruction = applied.modifiedSystemInstruction;
+        effectiveTemperature = Math.max(0, Math.min(1, temperature + applied.temperatureAdjust));
+        logger.info(`[AiTransport] Strategy applied: ${applied.strategyName}`);
+    }
+
+    // Start observability trace
+    const trace = ObservabilityService.startTrace({
+        name: 'ai-transport-call',
+        metadata: { model, strategy: strategy || 'NONE', traceId: traceId || 'unknown' }
+    });
+
+    const generation = ObservabilityService.startGeneration(trace, {
+        name: `gemini-${model}`,
+        model,
+        input: { prompt: effectivePrompt.substring(0, 500), hasAttachments: !!(attachments?.length) },
+        modelParameters: { temperature: effectiveTemperature, jsonMode }
+    });
+
+    const startTime = Date.now();
+    const parts: any[] = [{ text: effectivePrompt }];
 
 
     if (attachments && attachments.length > 0) {
@@ -70,9 +103,9 @@ export async function callGemini({
     }
     try {
         const config = {
-            systemInstruction,
+            systemInstruction: effectiveSystemInstruction,
             responseMimeType: jsonMode ? "application/json" : "text/plain",
-            temperature,
+            temperature: effectiveTemperature,
             topP: AI_CONFIG.GENERATION_CONFIG.topP,
             topK: AI_CONFIG.GENERATION_CONFIG.topK,
             safetySettings: [
@@ -114,14 +147,38 @@ export async function callGemini({
         const data = await response.json();
 
         // Normalize response
+        let responseText: string;
         if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) {
-            return data.candidates[0].content.parts.map((p: any) => p.text).join('');
+            responseText = data.candidates[0].content.parts.map((p: any) => p.text).join('');
+        } else {
+            responseText = JSON.stringify(data);
         }
 
-        return JSON.stringify(data);
+        // End observability generation
+        const latencyMs = Date.now() - startTime;
+        ObservabilityService.endGeneration(generation, {
+            output: responseText.substring(0, 500),
+            latencyMs,
+            usage: data.usageMetadata ? {
+                promptTokens: data.usageMetadata.promptTokenCount,
+                completionTokens: data.usageMetadata.candidatesTokenCount,
+                totalTokens: data.usageMetadata.totalTokenCount
+            } : undefined
+        });
+
+        return responseText;
 
     } catch (err: any) {
         logger.error("[AiTransport] Error:", err);
+
+        // End generation with error
+        if (generation) {
+            ObservabilityService.endGeneration(generation, {
+                output: `ERROR: ${err.message}`,
+                latencyMs: Date.now() - startTime
+            });
+        }
+
         if (err.name === 'AbortError') {
             throw new Error("TIMEOUT: La API tardó demasiado en responder.");
         }

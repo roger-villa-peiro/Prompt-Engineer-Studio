@@ -107,7 +107,8 @@ export class AgentOrchestrator {
                         systemInstruction: GET_ARCHITECT_PROMPT(critiqueHistory, memoryContext, globalContext, targetModel, subType, vibeContext, knowledgeContext),
                         jsonMode: false, // Let thinking models think
                         attachments,
-                        signal
+                        signal,
+                        model: targetModel
                     }),
                     { onRetry: (i, e) => onProgress?.('WAITING', `Architect (Retry ${i}): ${e.message}`) }
                 );
@@ -121,7 +122,8 @@ export class AgentOrchestrator {
                         prompt: `PROMPT:\n${archData.refined_prompt}`,
                         systemInstruction: CRITIC_PROMPT,
                         jsonMode: true,
-                        signal
+                        signal,
+                        model: targetModel // Standardize on targetModel for consistency
                     }),
                     { onRetry: (i, e) => onProgress?.('WAITING', `Critic (Retry ${i}): ${e.message}`) }
                 );
@@ -199,7 +201,13 @@ export class AgentOrchestrator {
         // Common call helper
         const callSpecAgent = async (instruction: string, prompt: string, schema: any) => {
             const txt = await ReliabilityService.withBackoff(
-                () => callGemini({ prompt, systemInstruction: instruction, jsonMode: true, signal }),
+                () => callGemini({
+                    prompt,
+                    systemInstruction: instruction,
+                    jsonMode: true,
+                    signal,
+                    model: 'gemini-3-pro-preview' // Spec flow is premium
+                }),
                 { onRetry: (i, e) => onProgress?.('WAITING', `SpecAgent (Retry ${i}): ${e.message}`) }
             );
             return ParserService.parseJson(txt, schema);

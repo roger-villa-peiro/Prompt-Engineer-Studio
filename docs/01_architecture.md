@@ -1,31 +1,43 @@
-# AI Forge Architecture
+# Architecture Overview: Prompt Engineer Studio
 
-## Vision
-**Prompt Engineer Studio** has evolved into **AI Forge**, a professional IDE for engineering cognitive agents. It moves beyond simple text editing to a "Compile & Verify" workflow.
+## 1. System Purpose
+Prompt Engineer Studio is a **Scientific IDE for Prompt Engineering**. Unlike simple chat interfaces, this tool transforms prompt creation from an art into a measurable science. It is designed to **Design, Refine, Evaluate, and Version** prompts using professional frameworks and adversarial testing.
 
-## Core Pillars
+## 2. Technology Stack (V2 AI-Native)
+The application is built on a modern, high-performance stack designed for low latency and high interactivity.
 
-### 1. The Forge (Agent Compiler)
-*   **Goal**: Define *Intent*, compile *Implementation*.
-*   **Mechanism**: Uses `SignatureComposer` to capture Inputs, Logic, and Outputs separately.
-*   **Output**: Generates standardized XML-structured prompts (`<role>`, `<inputs>`, `<logic_process>`).
-*   **Tech**: `utils/signatureCompiler.ts` handles the XML generation.
+*   **Frontend**: React 19 + Vite + TailwindCSS (Glassmorphism UI).
+*   **State Management**: Zustand (local state) + LocalStorage (persistence).
+*   **AI Core**:
+    *   **Reasoning Engine**: `Gemini 3.0 Pro` (High-cognitive tasks).
+    *   **Router/Speed Engine**: `Gemini 2.0 Flash` (Intent classification, simple tasks).
+    *   **Adversarial Judge**: Dual-Model Jury (Gemini + Llama 3 via Groq) for unbiased evaluation.
 
-### 2. The Sentinel (Security Auditor)
-*   **Goal**: Automated Red-Teaming.
-*   **Mechanism**: Runs the compiled prompt against a battery of adversarial attacks (DAN, Token Leakage, Translation).
-*   **Scoring**: Provides a 0-100 Resilience Score.
-*   **Tech**: `services/securityService.ts` executes attacks defined in `data/attacks.ts`.
+## 3. Core Modules
 
-### 3. The Thinker (Advanced Reasoning)
-*   **Goal**: Elevate cognitive performance.
-*   **Mechanism**: Library of high-performance templates accessible via the workspace.
-*   **Templates**: 
-    - **Code-Guided**: Forces Python pseudocode planning.
-    - **Meta-Prompt**: Self-optimizing prompts.
-    - **XML Agent**: Standard robust structure.
-*   **Tech**: `data/templates.ts`.
+### A. The Editor (Cognitive Refine)
+The central workspace. It doesn't just edit text; it actively collaborates with you.
+*   **Architect Agent**: Analyzes your input and restructures it into XML-based SOTA (State of the Art) prompts.
+*   **Zero-Config Mode**: A specialized mode that bypasses the interview phase for rapid iteration.
 
-## Legacy Modules (Maintained)
-*   **Battle Arena (SIPDO)**: A/B Testing with position bias detection.
-*   **Evaluator (Judge AI)**: Metric-based quality assessment (Faithfulness, Coherence).
+### B. Battle Arena (SIPDO)
+The evaluation engine.
+*   **SIPDO Algorithm**: *Scientific Iterative Prompt Data Optimization*.
+*   **Function**: Generates synthetic test cases (Simple, Complex, Edge) to scientifically compare two prompts (A vs B) and declare a winner based on empirical data, not vibes.
+
+### C. APE (Unity Evolution)
+The optimization engine.
+*   **Automatic Prompt Engineering**: Takes the winner of a battle and "mutates" it to fix specific weaknesses found during testing.
+*   **Convergence Check**: Intelligent system that knows when a prompt cannot be improved further.
+
+### D. The Router (Flash Guard)
+An intelligent traffic control system.
+*   **Function**: Intercepts every user message.
+*   **Logic**: If it's a simple "Hi", it uses a cheap model (Flash). If it's "Optimise this prompt for a legal bot", it routes to the expensive reasoning model (Pro). This optimizes cost and latency by ~90%.
+
+## 4. Data Flow
+1.  **Input**: User enters a raw idea.
+2.  **Route**: System classifies intent (`SPEC` vs `CHAT`).
+3.  **Refine**: Architect transforms raw idea -> Engineered Prompt.
+4.  **Battle**: User compares New Prompt vs Old Prompt in the Arena.
+5.  **Commit**: Validated prompt is saved to the Repository.
