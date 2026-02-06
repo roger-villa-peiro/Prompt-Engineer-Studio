@@ -60,11 +60,20 @@ app.post('/api/generate', async (req, res) => {
 
         const { model, contents, config } = req.body;
 
+        // Fix for @google/genai SDK: systemInstruction must be top-level, not in config
+        let systemInstruction = undefined;
+        if (config && config.systemInstruction) {
+            systemInstruction = config.systemInstruction;
+            // Clean it up from config to avoid SDK validation errors
+            delete config.systemInstruction;
+        }
+
         const response = await genAI.models.generateContent({
             model: model || 'gemini-2.5-flash',
             contents,
-            config: config || {}
-        });
+            config: config || {},
+            systemInstruction
+        } as any);
 
         res.json(response);
     } catch (error: any) {

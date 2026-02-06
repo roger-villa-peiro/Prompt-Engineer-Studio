@@ -46,6 +46,15 @@ const PromptEditor: React.FC<Props> = ({
   addToast,
   contextData,
   setContextData,
+  // NEW: Code Context Props (Optional if we want to bubble up, but state is local for now or props?)
+  // Let's keep it local or if user wants to persist... the previous code had setContextData in props.
+  // The user didn't ask to persist it but it's likely useful.
+  // However, for minimal invasion, I'll keep it local or add to props if needed.
+  // The existing pattern has setContextData in props.
+  // Let's just use local state for now as I can't change the parent easily without reading it. 
+  // Wait, I can see PromptEditor definition. 'contextData' is passed in.
+  // I'll add a local state for codeContext for now.
+
   attachments,
   setAttachments
 }) => {
@@ -72,6 +81,11 @@ const PromptEditor: React.FC<Props> = ({
   const [showExport, setShowExport] = useState(false);
   const [showContext, setShowContext] = useState(false);
   const [showSyntheticGenerator, setShowSyntheticGenerator] = useState(false);
+
+  // NEW: Code Context State
+  const [codeContext, setCodeContext] = useState('');
+  const [showCodeContext, setShowCodeContext] = useState(false);
+
 
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [commitMessage, setCommitMessage] = useState('Version Refinement');
@@ -201,7 +215,8 @@ const PromptEditor: React.FC<Props> = ({
           signal: controller.signal,
           attachments,
           subType: actualSubType,
-          vibeContext: contextData
+          vibeContext: contextData,
+          codeContext: codeContext // NEW: Pass Code Context
         }
       );
 
@@ -519,6 +534,35 @@ const PromptEditor: React.FC<Props> = ({
                         </div>
                       )}
                     </div>
+
+                    {/* NEW: Code Context Input (Only visible if Zero-Config is OFF) */}
+                    {!zeroConfigMode && (
+                      <div className="border-b border-white/5 bg-black/20">
+                        <button
+                          onClick={() => setShowCodeContext(!showCodeContext)}
+                          className="w-full flex items-center justify-between px-4 py-2 text-[10px] font-bold text-slate-500 hover:text-slate-300 uppercase tracking-widest transition-colors"
+                        >
+                          <span className="flex items-center gap-2">
+                            <span className="material-symbols-outlined text-sm">code</span>
+                            Code Context (Separate)
+                          </span>
+                          <span className={`material-symbols-outlined text-sm transition-transform ${showCodeContext ? 'rotate-180' : ''}`}>expand_more</span>
+                        </button>
+
+                        {showCodeContext && (
+                          <div className="p-2 animate-in slide-in-from-top-2">
+                            <textarea
+                              value={codeContext}
+                              onChange={(e) => setCodeContext(e.target.value)}
+                              placeholder="Paste only your code here. This helps the AI distinguish between natural language instructions and technical context..."
+                              className={`w-full h-32 bg-black/40 border border-white/10 rounded-lg p-3 text-xs text-blue-300 focus:outline-none focus:border-secondary/50 resize-y font-mono ${isOptimizing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              disabled={isOptimizing}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
+
 
                     <div className="flex-1 relative">
                       <RichPromptEditor

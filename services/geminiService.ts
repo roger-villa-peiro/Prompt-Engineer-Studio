@@ -52,13 +52,14 @@ export const optimizePrompt = async (
     attachments?: Attachment[];
     subType?: 'CODING' | 'PLANNING' | 'WRITING' | 'GENERAL';
     vibeContext?: string;
+    codeContext?: string;
   }
 ): Promise<OptimizationResult | InterviewerResponse> => {
   const orchestrator = new AgentOrchestrator();
   onProgress?.('START', 'Iniciando pipeline cognitivo...');
 
   if (!options?.skipInterviewer && options?.subType !== 'PLANNING') {
-    const clarity = await orchestrator.assessInputClarity(currentPrompt, history, contextData || '', options?.attachments, options?.signal, onProgress);
+    const clarity = await orchestrator.assessInputClarity(currentPrompt, history, contextData || '', options?.attachments, options?.signal, onProgress, options?.codeContext);
     if (clarity.status === "NEEDS_CLARIFICATION") return clarity;
   }
 
@@ -88,7 +89,8 @@ export const optimizePrompt = async (
     options?.model,
     options?.subType,
     options?.vibeContext,
-    knowledgeContext
+    knowledgeContext,
+    options?.codeContext
   );
 }
 

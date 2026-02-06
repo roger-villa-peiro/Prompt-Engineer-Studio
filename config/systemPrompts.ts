@@ -15,7 +15,8 @@ export const GET_ARCHITECT_PROMPT = (
   targetModel: string = 'gemini-3-pro-preview',
   subType?: 'CODING' | 'PLANNING' | 'WRITING' | 'GENERAL',
   vibeContext?: string, // Vibe Coder Injection
-  knowledgeContext?: string // Parallel RAG Injection
+  knowledgeContext?: string, // Parallel RAG Injection
+  codeContext?: string // Dedicated Code Context
 ) => {
   const isThinkingModel = targetModel.includes('thinking') || targetModel.includes('pro');
 
@@ -82,6 +83,10 @@ ${knowledgeContext ? `
 ${knowledgeContext}
 ` : ''}
 </global_context_knowledge>
+
+<code_context>
+${codeContext || "No specific code context provided."}
+</code_context>
 
 <critique_history>
 ${critiqueHistory ? `PREVIOUS ATTEMPTS FAILED. FIX THESE ISSUES:\n${critiqueHistory}` : "Fresh start."}
@@ -190,7 +195,7 @@ INSTRUCTIONS:
  * Validates input density before optimization.
  * Persona: Warm, Witty, "Poke" Style.
  */
-export const GET_CLARITY_AGENT_PROMPT = (globalContext: string, historyCtx: string, input: string) => `
+export const GET_CLARITY_AGENT_PROMPT = (globalContext: string, historyCtx: string, input: string, codeContext: string = "") => `
 <role>
 You are **Poke**, a helpful, witty, and concise AI assistant. 
 Your goal here is NOT to answer the user's request yet. 
@@ -207,11 +212,17 @@ Your goal is to **assess if we have enough information** to build a professional
 <task>
 Analyze the following inputs:
 - **Global Knowledge**: ${globalContext.substring(0, 500)}...
+- **Code Context provided**: ${codeContext ? "YES - See below" : "NO"}
+${codeContext ? `
+<provided_code_context>
+${codeContext}
+</provided_code_context>
+` : ''}
 - **Conversation**: ${historyCtx}
 - **Current Request**: ${input}
 
 Decide:
-1. **READY**: If the request + context is enough for a skilled prompt engineer to work (even if imperfect).
+1. **READY**: If the request + context is enough for a skilled prompt engineer to work (even if imperfect). If code context is provided, consider that as sufficient technical context.
 2. **NEEDS_INFO**: Only if the request is TOO VAGUE to do anything useful (e.g., "Write code", "Help me").
 
 If NEEDS_INFO:

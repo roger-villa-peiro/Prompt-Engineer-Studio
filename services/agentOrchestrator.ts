@@ -35,7 +35,8 @@ export class AgentOrchestrator {
         globalContext: string = '',
         attachments: Attachment[] = [],
         signal?: AbortSignal,
-        onProgress?: (stage: string, detail: string) => void
+        onProgress?: (stage: string, detail: string) => void,
+        codeContext: string = ''
     ): Promise<InterviewerResponse> {
         const historyCtx = history.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
 
@@ -48,7 +49,7 @@ export class AgentOrchestrator {
             const responseText = await ReliabilityService.withBackoff(
                 () => callGemini({
                     prompt: `ANALYZE THIS INTERACTION:`,
-                    systemInstruction: GET_CLARITY_AGENT_PROMPT(globalContext || "None", historyCtx, input),
+                    systemInstruction: GET_CLARITY_AGENT_PROMPT(globalContext || "None", historyCtx, input, codeContext),
                     jsonMode: true,
                     attachments,
                     signal,
@@ -81,7 +82,8 @@ export class AgentOrchestrator {
         targetModel: string = 'gemini-3-pro-preview',
         subType?: 'CODING' | 'PLANNING' | 'WRITING' | 'GENERAL',
         vibeContext?: string,
-        knowledgeContext?: string
+        knowledgeContext?: string,
+        codeContext?: string
     ): Promise<OptimizationResult> {
         const memoryContext = MemoryService.getMemoryString();
         const historyCtx = history.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n');
@@ -104,7 +106,7 @@ export class AgentOrchestrator {
                 const architectResponseText = await ReliabilityService.withBackoff(
                     () => callGemini({
                         prompt: `CONVERSATION HISTORY:\n${historyCtx}\n\nUSER INTENT:\n${originalInput}`,
-                        systemInstruction: GET_ARCHITECT_PROMPT(critiqueHistory, memoryContext, globalContext, targetModel, subType, vibeContext, knowledgeContext),
+                        systemInstruction: GET_ARCHITECT_PROMPT(critiqueHistory, memoryContext, globalContext, targetModel, subType, vibeContext, knowledgeContext, codeContext),
                         jsonMode: false, // Let thinking models think
                         attachments,
                         signal,
