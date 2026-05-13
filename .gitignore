@@ -25,7 +25,9 @@ dist-ssr
 *.sw?
 
 venv/
+.venv/
 __pycache__/
+
 # Temporary Python scripts and outputs
 *.py
 *.txt
@@ -34,3 +36,16 @@ refineallfiles.md
 *ids.json
 vite.config.ts.timestamp-*.mjs
 stats.html
+
+# Debug/test scripts
+scripts/
+
+# Workspace files
+*.code-workspace
+
+# Screenshots and image artifacts
+dataset_screenshot.png
+
+# Temp directories
+temp_docx_root/
+docx_content.txt
