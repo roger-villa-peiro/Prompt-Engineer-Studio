@@ -22,11 +22,18 @@ export async function callGroq(
     messages.push({ role: "user", content: prompt });
 
     try {
+        const customGroqKey = localStorage.getItem('antigravity_groq_key');
+        const headers: Record<string, string> = {
+            "Content-Type": "application/json"
+        };
+        
+        if (customGroqKey) {
+            headers['X-Groq-Api-Key'] = customGroqKey;
+        }
+
         const response = await fetch("/api/groq", {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
+            headers: headers,
             body: JSON.stringify({
                 model: model,
                 messages: messages,

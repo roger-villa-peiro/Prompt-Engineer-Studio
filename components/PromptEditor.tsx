@@ -9,6 +9,7 @@ import { EvaluationDashboard } from './EvaluationDashboard';
 import { OnboardingTour } from './OnboardingTour';
 import { TemplateSelector } from './TemplateSelector';
 import { ExportModal } from './ExportModal';
+import { ApiKeysModal } from './ApiKeysModal';
 import { RichPromptEditor } from './RichPromptEditor';
 import { openDirectory, readFileContent } from '../services/fileService';
 import { FileItem, Attachment } from '../types';
@@ -79,6 +80,7 @@ const PromptEditor: React.FC<Props> = ({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showExport, setShowExport] = useState(false);
+  const [showApiKeysModal, setShowApiKeysModal] = useState(false);
   const [showContext, setShowContext] = useState(false);
   const [showSyntheticGenerator, setShowSyntheticGenerator] = useState(false);
 
@@ -386,6 +388,7 @@ const PromptEditor: React.FC<Props> = ({
       )}
       {showTemplates && <TemplateSelector onSelect={setContent} onClose={() => setShowTemplates(false)} />}
       {showExport && <ExportModal content={content} onClose={() => setShowExport(false)} />}
+      {showApiKeysModal && <ApiKeysModal onClose={() => setShowApiKeysModal(false)} />}
 
       {/* REFACTOR: Sidebar Component */}
       <EditorSidebar
@@ -412,6 +415,7 @@ const PromptEditor: React.FC<Props> = ({
           isBusy={isBusy}
           selectedModel={selectedModel}
           setSelectedModel={setSelectedModel}
+          setShowApiKeysModal={setShowApiKeysModal}
         />
 
         <div className="flex-1 overflow-y-auto px-4 pt-4 pb-48 relative scroll-smooth hide-scrollbar">

@@ -131,11 +131,18 @@ export async function callGemini({
         const timeoutMs = timeout || 180000;
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
+        const customGeminiKey = localStorage.getItem('antigravity_gemini_key');
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json'
+        };
+        
+        if (customGeminiKey) {
+            headers['X-Gemini-Api-Key'] = customGeminiKey;
+        }
+
         const response = await fetch('/api/generate', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: headers,
             body: JSON.stringify({
                 model,
                 contents: [{ role: 'user', parts }],

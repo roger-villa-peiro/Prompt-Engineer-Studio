@@ -7,7 +7,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
     res.setHeader(
         'Access-Control-Allow-Headers',
-        'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+        'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, X-Gemini-Api-Key, X-Groq-Api-Key'
     );
 
     if (req.method === 'OPTIONS') {
@@ -20,8 +20,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-        const apiKey = process.env.GROQ_API_KEY;
-        if (!apiKey) throw new Error("API Key missing on server");
+        const apiKey = req.headers['x-groq-api-key'] as string || process.env.GROQ_API_KEY;
+        if (!apiKey) {
+            return res.status(401).json({ error: "API Key missing. Please configure your Groq API Key in the settings." });
+        }
 
         const { model, messages, temperature, max_tokens } = req.body;
 

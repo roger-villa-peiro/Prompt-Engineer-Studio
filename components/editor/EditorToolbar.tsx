@@ -15,6 +15,7 @@ interface EditorToolbarProps {
     isBusy: boolean;
     selectedModel: string;
     setSelectedModel: (val: string) => void;
+    setShowApiKeysModal: (val: boolean) => void;
 }
 
 export const EditorToolbar: React.FC<EditorToolbarProps> = ({
@@ -29,7 +30,8 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
     setShowSyntheticGenerator,
     isBusy,
     selectedModel,
-    setSelectedModel
+    setSelectedModel,
+    setShowApiKeysModal
 }) => {
     const navigate = useNavigate();
 
@@ -89,6 +91,15 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                     title="The Sentinel (Security Auditor)"
                 >
                     <span className="material-symbols-outlined text-[20px] text-red-500 shadow-red-500/50 drop-shadow-sm">shield_lock</span>
+                </button>
+                <div className="w-px h-6 bg-white/10 mx-1 self-center"></div>
+                <button
+                    onClick={() => setShowApiKeysModal(true)}
+                    className={`size-10 flex items-center justify-center rounded-full hover:bg-white/10 ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    disabled={isBusy}
+                    title="API Keys Configuration"
+                >
+                    <span className="material-symbols-outlined text-[20px] text-slate-300">key</span>
                 </button>
             </div>
 

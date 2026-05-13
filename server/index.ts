@@ -28,7 +28,8 @@ const isDev = process.env.NODE_ENV === 'development';
 app.use(cors({
     origin: isDev ? '*' : process.env.FRONTEND_URL || 'http://localhost:3000',
     methods: ['GET', 'POST', 'OPTIONS'],
-    credentials: true
+    credentials: true,
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Gemini-Api-Key', 'X-Groq-Api-Key']
 }));
 
 app.use(express.json({ limit: '10mb' })); // Reduced form 50mb to 10mb for safety
@@ -53,8 +54,10 @@ app.get('/health', (req, res) => {
 
 app.post('/api/generate', async (req, res) => {
     try {
-        const apiKey = process.env.GEMINI_API_KEY;
-        if (!apiKey) throw new Error("API Key missing on server");
+        const apiKey = req.headers['x-gemini-api-key'] as string || process.env.GEMINI_API_KEY;
+        if (!apiKey) {
+            return res.status(401).json({ error: "API Key missing. Please configure your Gemini API Key in the settings." });
+        }
 
         const genAI = new GoogleGenAI({ apiKey });
 
@@ -117,8 +120,10 @@ app.post('/api/generate', async (req, res) => {
 
 app.post('/api/groq', async (req, res) => {
     try {
-        const apiKey = process.env.GROQ_API_KEY;
-        if (!apiKey) throw new Error("API Key missing on server");
+        const apiKey = req.headers['x-groq-api-key'] as string || process.env.GROQ_API_KEY;
+        if (!apiKey) {
+            return res.status(401).json({ error: "API Key missing. Please configure your Groq API Key in the settings." });
+        }
 
         const { model, messages, temperature, max_tokens } = req.body;
 
