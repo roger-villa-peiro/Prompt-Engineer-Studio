@@ -7,6 +7,7 @@
         "target": "ES2019",
         "esModuleInterop": true
     },
+    "include": ["server/**/*", "api/**/*"],
     "ts-node": {
         "esm": true
     }
