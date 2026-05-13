@@ -67,6 +67,14 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
                     <span className="material-symbols-outlined text-[20px] text-cyan-400 shadow-cyan-500/50 drop-shadow-sm">precision_manufacturing</span>
                 </button>
                 <button
+                    onClick={() => navigate('/agent')}
+                    className={`size-10 flex items-center justify-center rounded-full hover:bg-white/10 ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    disabled={isBusy}
+                    title="Agent Swarm (Loki Mode)"
+                >
+                    <span className="material-symbols-outlined text-[20px] text-purple-400 shadow-purple-500/50 drop-shadow-sm">diversity_3</span>
+                </button>
+                <button
                     onClick={() => navigate('/versions')}
                     className={`size-10 flex items-center justify-center rounded-full hover:bg-white/10 ${isBusy ? 'opacity-50 cursor-not-allowed' : ''}`}
                     disabled={isBusy}

@@ -86,6 +86,32 @@ export const EvaluationDashboard: React.FC<EvaluationDashboardProps> = ({ result
                         </div>
                     </div>
                 </div>
+
+                {/* NEW: RAG Triad Metrics */}
+                <div className="mt-4 pt-4 border-t border-white/5 space-y-3">
+                    <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">RAG Triad Analysis</h4>
+
+                    <div className="grid grid-cols-3 gap-2">
+                        <div className="bg-black/20 p-2 rounded border border-white/5 text-center">
+                            <div className="text-[9px] text-slate-500 uppercase">Context Rel</div>
+                            <div className={`text-lg font-bold ${result.criteria.contextRelevance >= 7 ? 'text-blue-400' : 'text-warning'}`}>
+                                {result.criteria.contextRelevance}/10
+                            </div>
+                        </div>
+                        <div className="bg-black/20 p-2 rounded border border-white/5 text-center">
+                            <div className="text-[9px] text-slate-500 uppercase">Groundedness</div>
+                            <div className={`text-lg font-bold ${result.criteria.groundedness >= 7 ? 'text-green-400' : 'text-warning'}`}>
+                                {result.criteria.groundedness}/10
+                            </div>
+                        </div>
+                        <div className="bg-black/20 p-2 rounded border border-white/5 text-center">
+                            <div className="text-[9px] text-slate-500 uppercase">Answer Rel</div>
+                            <div className={`text-lg font-bold ${result.criteria.answerRelevance >= 7 ? 'text-purple-400' : 'text-warning'}`}>
+                                {result.criteria.answerRelevance}/10
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             {/* Reasoning & Performance */}
@@ -97,6 +123,6 @@ export const EvaluationDashboard: React.FC<EvaluationDashboardProps> = ({ result
                     <span>EST. COST: ${result.costEstimate.toFixed(6)}</span>
                 </div>
             </div>
-        </div>
+        </div >
     );
 };

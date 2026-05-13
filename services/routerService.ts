@@ -51,7 +51,7 @@ IMPORTANT: Respond ONLY with a JSON object. No markdown.
         const response = await callGemini({
             prompt: `HISTORY:\n${historyContext}\n\nLAST MESSAGE: ${userMessage}`,
             systemInstruction: SYSTEM_PROMPT,
-            model: "gemini-2.0-flash", // Use fast/cheap model for routing
+            model: "gemini-3-flash-preview", // Use fast/cheap model for routing
             jsonMode: true,
             temperature: 0.1
         });

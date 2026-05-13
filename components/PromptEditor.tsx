@@ -198,10 +198,21 @@ const PromptEditor: React.FC<Props> = ({
         // Let's handle it here:
         const orchestrator = new AgentOrchestrator();
         const inference = await orchestrator.inferTaskType(content);
-        setInferredType(inference);
-        actualSubType = inference;
-        onProgress('ANALYSIS', `Zero-Config: Inferred type '${inference}'`);
-        addToast(`Auto-Configured: ${inference}`, 'success');
+
+        // OVERRIDE: If Zero-Config is ON, the user (likely) wants a quick optimization,
+        // NOT the full robust Spec Architect Flow (Requirements -> Design -> Tasks).
+        // So if inference says 'PLANNING', we downgrade it to 'GENERAL' to keep the standard flow.
+        if (inference === 'PLANNING') {
+          actualSubType = 'GENERAL';
+          setInferredType('PLANNING (Skipped Spec Architect)');
+          onProgress('ANALYSIS', `Zero-Config: Planning detected but forcing Standard Flow (Skipping Spec Architect)`);
+          addToast('Planning detected: Spec Flow skipped (Zero Config)', 'info');
+        } else {
+          setInferredType(inference);
+          actualSubType = inference;
+          onProgress('ANALYSIS', `Zero-Config: Inferred type '${inference}'`);
+          addToast(`Auto-Configured: ${inference}`, 'success');
+        }
       }
 
       const result = await optimizePrompt(
@@ -216,7 +227,7 @@ const PromptEditor: React.FC<Props> = ({
           attachments,
           subType: actualSubType,
           vibeContext: contextData,
-          codeContext: codeContext // NEW: Pass Code Context
+          codeContext: codeContext
         }
       );
 
@@ -437,8 +448,8 @@ const PromptEditor: React.FC<Props> = ({
             {/* ZERO-CONFIG TOGGLE */}
             {!proposedContent && (
               <div
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all cursor-pointer ${zeroConfigMode ? 'bg-primary/10 border-primary/50' : 'bg-white/5 border-white/10 opacity-60 hover:opacity-100'}`}
-                onClick={() => setZeroConfigMode(!zeroConfigMode)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all ${isOptimizing ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'} ${zeroConfigMode ? 'bg-primary/10 border-primary/50' : 'bg-white/5 border-white/10 opacity-60 hover:opacity-100'}`}
+                onClick={() => !isOptimizing && setZeroConfigMode(!zeroConfigMode)}
               >
                 <div className={`w-8 h-4 rounded-full relative transition-colors ${zeroConfigMode ? 'bg-primary' : 'bg-slate-600'}`}>
                   <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-transform ${zeroConfigMode ? 'left-4.5' : 'left-0.5'}`} style={{ left: zeroConfigMode ? '18px' : '2px' }} />
@@ -679,21 +690,23 @@ const PromptEditor: React.FC<Props> = ({
           )}
 
         </div>
-      </main>
+      </main >
 
       {/* Save Modal */}
-      {showSaveModal && (
-        <SaveVersionModal
-          isOpen={showSaveModal}
-          onClose={() => setShowSaveModal(false)}
-          onSave={(msg, rating) => {
-            onSave(msg, rating === null ? undefined : rating);
-            setShowSaveModal(false);
-          }}
-          initialMessage={commitMessage}
-        />
-      )}
-    </div>
+      {
+        showSaveModal && (
+          <SaveVersionModal
+            isOpen={showSaveModal}
+            onClose={() => setShowSaveModal(false)}
+            onSave={(msg, rating) => {
+              onSave(msg, rating === null ? undefined : rating);
+              setShowSaveModal(false);
+            }}
+            initialMessage={commitMessage}
+          />
+        )
+      }
+    </div >
   );
 };
 

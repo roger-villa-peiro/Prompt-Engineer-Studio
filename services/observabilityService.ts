@@ -4,7 +4,7 @@
  * Based on the langfuse skill from vibeship-spawner-skills.
  */
 
-import { Langfuse, LangfuseTraceClient, LangfuseGenerationClient } from 'langfuse';
+import { Langfuse, LangfuseTraceClient, LangfuseGenerationClient, LangfuseSpanClient } from 'langfuse';
 import { logger } from './loggerService';
 
 // Environment configuration (Support Vite/Browser and Node)
@@ -144,6 +144,53 @@ export const ObservabilityService = {
             });
         } catch (error) {
             logger.error('[Observability] Failed to end generation:', error);
+        }
+    },
+
+    /**
+     * Start a span within a trace.
+     */
+    startSpan(trace: LangfuseTraceClient | null, name: string, metadata?: any): LangfuseSpanClient | null {
+        if (!trace) return null;
+
+        try {
+            return trace.span({
+                name,
+                metadata
+            });
+        } catch (error) {
+            logger.error('[Observability] Failed to start span:', error);
+            return null;
+        }
+    },
+
+    /**
+     * Update a span with new metadata/output.
+     */
+    updateSpan(span: LangfuseSpanClient | null, metadata: any): void {
+        if (!span) return;
+
+        try {
+            span.update({
+                metadata
+            });
+        } catch (error) {
+            logger.error('[Observability] Failed to update span:', error);
+        }
+    },
+
+    /**
+     * End a span.
+     */
+    endSpan(span: LangfuseSpanClient | null, output?: any): void {
+        if (!span) return;
+
+        try {
+            span.end({
+                output
+            });
+        } catch (error) {
+            logger.error('[Observability] Failed to end span:', error);
         }
     },
 

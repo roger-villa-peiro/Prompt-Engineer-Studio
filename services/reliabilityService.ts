@@ -16,13 +16,14 @@ interface RetryOptions {
     onRetry?: (attempt: number, error: Error) => void;
     shouldRetry?: (error: Error) => boolean;
 }
+import { AI_CONFIG } from '../config/aiConfig';
 
 const DEFAULT_OPTIONS: RetryOptions = {
-    maxRetries: 3,
+    maxRetries: AI_CONFIG.MAX_RETRIES,
     baseDelay: 1000,
     maxDelay: 10000,
     shouldRetry: (error: Error) => {
-        // Retry on network errors, 5xx, 429
+        // Retry on network errors, 5xx, 429, and parser errors (non-deterministic model output)
         const msg = error.message.toLowerCase();
         return (
             msg.includes('network') ||
@@ -32,7 +33,9 @@ const DEFAULT_OPTIONS: RetryOptions = {
             msg.includes('503') ||
             msg.includes('500') ||
             msg.includes('quota') ||
-            msg.includes('rate limit')
+            msg.includes('rate limit') ||
+            msg.includes('syntax_error') ||
+            msg.includes('parser_error')
         );
     }
 };
@@ -54,14 +57,30 @@ export class ReliabilityService {
             } catch (error: any) {
                 attempt++;
 
-                if (attempt > (opts.maxRetries || 3) || (opts.shouldRetry && !opts.shouldRetry(error))) {
+                // Smart Backoff: Detect overload errors (503, 429)
+                const isOverload = error.message.includes('503') ||
+                    error.message.includes('429') ||
+                    error.message.includes('Overloaded') ||
+                    error.message.includes('UNAVAILABLE');
+
+                // If overloaded, use a more patient strategy
+                const effectiveMaxRetries = isOverload ? (opts.maxRetries || 3) + 2 : (opts.maxRetries || 3);
+
+                if (attempt > effectiveMaxRetries || (opts.shouldRetry && !opts.shouldRetry(error))) {
                     throw error;
                 }
 
-                // Calculate delay with jitter: base * 2^attempt + random_jitter
-                const exponentialDelay = (opts.baseDelay || 1000) * Math.pow(2, attempt - 1);
-                const cappedDelay = Math.min(exponentialDelay, opts.maxDelay || 10000);
-                const jitter = Math.random() * 200;
+                // Calculate delay with jitter
+                // Normal: base * 2^(attempt-1)
+                // Overload: start higher (3000ms) and grow slower but longer cap
+                let baseDelay = opts.baseDelay || 1000;
+                if (isOverload) baseDelay = Math.max(baseDelay, 3000);
+
+                const exponentialDelay = baseDelay * Math.pow(2, attempt - 1);
+                const cappedDelay = Math.min(exponentialDelay, opts.maxDelay || (isOverload ? 20000 : 10000));
+
+                // Add jitter (randomness) to avoid thundering herd
+                const jitter = Math.random() * (isOverload ? 1000 : 200);
                 const delay = cappedDelay + jitter;
 
                 if (opts.onRetry) {

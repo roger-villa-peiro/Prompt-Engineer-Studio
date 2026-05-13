@@ -1,12 +1,12 @@
 
 export const AI_CONFIG = {
-  MODEL_ID: 'gemini-2.5-flash', // Verified working model
+  MODEL_ID: 'gemini-3-flash-preview', // Verified working model for this key
   AVAILABLE_MODELS: {
-    POWER: 'gemini-3-pro-preview',
-    SPEED: 'gemini-2.5-flash',
-    IMAGE: 'gemini-3-pro-image-preview' // Verified working (Feb 2026)
+    POWER: 'gemini-3.1-pro-preview', // Gemini 3.1 Pro Preview
+    SPEED: 'gemini-3-flash-preview',
+    IMAGE: 'gemini-3-flash-preview' // Fallback for now
   },
-  MAX_RETRIES: 3,
+  MAX_RETRIES: 2, // Reduced for faster Refine execution
   MIN_QUALITY_SCORE: 80,
   GENERATION_CONFIG: {
     temperature: 0.7,

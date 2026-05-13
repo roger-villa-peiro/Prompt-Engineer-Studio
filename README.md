@@ -7,7 +7,7 @@
 
 ![Status](https://img.shields.io/badge/Status-Production_Ready-success) ![Stack](https://img.shields.io/badge/Stack-React_|_Supabase_|_Vite-blue) ![AI](https://img.shields.io/badge/AI-Gemini_3.0_Pro_Ready-purple)
 
-## ✨ key Features
+## ✨ Key Features
 
 ### ⚡ Pro Editor & Workflow
 - **Rich Prompt Editor**: Real-time **Token Counter** and **Variable Detector** (`{{variable}}`) HUD.
@@ -38,12 +38,18 @@
    ```
 
 3. **Configure Environment**
+   To run this application, you must provide your own API keys. You will not use the creator's credits.
    Create a `.env` file based on `.env.example`:
-   ```env
-   VITE_SUPABASE_URL=your_supabase_url
-   VITE_SUPABASE_ANON_KEY=your_supabase_key
+   ```bash
+   cp .env.example .env
    ```
-   *(Note: The Gemini API Key is entered in the UI for security)*
+   Then fill in your keys:
+   ```env
+   GEMINI_API_KEY=your_gemini_api_key_here
+   GROQ_API_KEY=your_groq_api_key_here
+   VITE_SUPABASE_URL=your_supabase_url_here
+   VITE_SUPABASE_ANON_KEY=your_supabase_anon_key_here
+   ```
 
 4. **Run Locally**
    ```bash
@@ -53,6 +59,7 @@
 ## 📐 Architecture
 
 - **Frontend**: React 18 + Vite + TailwindCSS
+- **Backend/API**: Vercel Serverless Functions
 - **State**: React Hooks + LocalStorage + Supabase
 - **Visuals**: Glassmorphism UI (Surface Dark theme)
 - **Icons**: Google Material Symbols

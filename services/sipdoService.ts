@@ -1,181 +1,230 @@
+import { callGemini, safeJsonParse } from "./geminiService";
+import { logger } from "./loggerService";
+import { z } from "zod";
+
+export interface StressResult {
+    passed: boolean;
+    score: number;
+    failures: FailureCase[];
+    summary: string;
+}
+
+export interface FailureCase {
+    input: string;
+    expected: string;
+    actual: string;
+    reason: string;
+    expected_behavior_description?: string;
+}
+
 /**
- * SIPDO Service - Self-Improving Prompts through Data-Augmented Optimization
- * 
- * Implements progressive difficulty test case generation with:
- * - Gradiente de dificultad (1-10)
- * - Historial de casos para confirmación global
- * - Generación de parches explicativos
+ * SIPDO: Scientific Integrated Prompt Design Optimization
+ * Module for generating adversarial stress tests and self-patching prompts.
  */
 
-import { callGemini } from "./aiTransport";
-import { ParserService } from "./parserService";
-import { z } from "zod";
-import { logger } from "./loggerService";
+// Schema Definitions
+const StressTestSchema = z.array(z.string());
+const VerdictSchema = z.object({
+    passed: z.boolean(),
+    reason: z.string(),
+    expected_behavior_description: z.string().optional()
+});
+const ProgressiveTestsSchema = z.array(z.object({
+    type: z.enum(['Simple', 'Complex', 'Edge Case']),
+    input: z.string()
+}));
+
+// 1. Generate Stress Tests (Adversarial)
+export async function generateStressTests(prompt: string, n: number = 3): Promise<string[]> {
+    const systemPrompt = `You are a QA Engineer specialized in breaking LLM prompts.
+    Analyze the following prompt and generate ${n} "Red Teaming" inputs designed to make it fail.
+    
+    Focus on:
+    - Ambiguity/Edge cases
+    - Injection attacks (ignore if prompt is not security-critical, but good to test)
+    - Conflicting instructions
+    - Unexpected format inputs
+    
+    OUTPUT: A JSON array of strings. Each string is a raw input to test against the prompt.
+    Example: ["input 1", "input 2"]
+    `;
+
+    const userPrompt = `PROMPT TO TEST:
+    ${prompt}
+    
+    Generate ${n} challenging inputs.`;
+
+    try {
+        const response = await callGemini({
+            prompt: userPrompt,
+            systemInstruction: systemPrompt,
+            model: "gemini-3-flash-preview", // Fast model for generation
+            temperature: 0.7,
+            jsonMode: true
+        });
+
+        return safeJsonParse(response, StressTestSchema);
+    } catch (e) {
+        logger.error("Failed to generate stress tests", e);
+        return ["Test Case 1: Generic Input", "Test Case 2: Edge Case Input"];
+    }
+}
+
+// 2. Evaluate Prompt Against Tests
+export async function evaluateAgainstTests(prompt: string, tests: string[]): Promise<StressResult> {
+    const failures: FailureCase[] = [];
+    let passedCount = 0;
+
+    for (const testInput of tests) {
+        // Run the prompt
+        let actualOutput = "";
+        try {
+            actualOutput = await callGemini({
+                prompt: testInput,
+                systemInstruction: prompt,
+                model: "gemini-3-flash-preview", // Use fast model for testing
+                temperature: 0.1
+            });
+        } catch (e) {
+            actualOutput = "ERROR: Model failed to respond.";
+        }
+
+        // Judge the output
+        const judgeSystemPrompt = `You are an impartial Judge. Evaluate if the Output followed the System Instruction correctly.`;
+
+        const judgeUserPrompt = `
+        PROMPT SYSTEM INSTRUCTION: ${prompt}
+        TEST INPUT: ${testInput}
+        ACTUAL OUTPUT: ${actualOutput}
+
+        Did the Output follow the System Instruction correctly?
+        If NO, explain why.
+
+        FORMAT (JSON):
+        {
+            "passed": boolean,
+            "reason": "explanation if failed, else 'OK'",
+            "expected_behavior_description": "short description of what should have happened"
+        }
+        `;
+
+        try {
+            const judgeRes = await callGemini({
+                prompt: judgeUserPrompt,
+                systemInstruction: judgeSystemPrompt,
+                model: "gemini-3-flash-preview",
+                jsonMode: true
+            });
+
+            const verdict = safeJsonParse(judgeRes, VerdictSchema);
+
+            if (verdict.passed) {
+                passedCount++;
+            } else {
+                failures.push({
+                    input: testInput,
+                    actual: actualOutput,
+                    expected: verdict.expected_behavior_description || "Correct adherence to instructions",
+                    reason: verdict.reason
+                });
+            }
+        } catch (e) {
+            // Assume pass if judge fails? Or fail? Let's assume fail to be safe.
+            failures.push({
+                input: testInput,
+                actual: actualOutput,
+                expected: "Valid response",
+                reason: "Judge failed to evaluate"
+            });
+        }
+    }
+
+    const score = Math.round((passedCount / tests.length) * 100);
+
+    return {
+        passed: score === 100,
+        score,
+        failures,
+        summary: `Passed ${passedCount}/${tests.length} stress tests.`
+    };
+}
+
+// 3. Patch Prompt from Failures
+export async function patchPromptFromFailures(prompt: string, failures: FailureCase[]): Promise<string> {
+    if (failures.length === 0) return prompt;
+
+    const systemPrompt = `You are a Senior Prompt Engineer.
+    The current prompt failed specific stress tests.
+    Your goal is to PATCH the prompt to handle these cases without breaking existing functionality.
+    
+    RETURN ONLY THE FULL CORRECTED PROMPT. NO MARKDOWN. NO EXPLANATION.`;
+
+    const failureText = failures.map((f, i) => `
+    FAILURE ${i + 1}:
+    Input: ${f.input}
+    Output: ${f.actual}
+    Expected: ${f.expected}
+    Reason: ${f.reason}
+    `).join("\n");
+
+    const userPrompt = `
+    CURRENT PROMPT:
+    ${prompt}
+
+    FAILURES TO FIX:
+    ${failureText}
+
+    Rewrite the prompt to prevent these failures.
+    `;
+
+    try {
+        const patched = await callGemini({
+            prompt: userPrompt,
+            systemInstruction: systemPrompt,
+            model: "gemini-3-flash-preview", // Smart model for patching -> maybe Pro? Keep Flash for speed/cost.
+            temperature: 0.3
+        });
+        return patched.trim();
+    } catch (e) {
+        logger.error("Failed to patch prompt", e);
+        return prompt;
+    }
+}
 
 export interface SIPDOTestCase {
     type: 'Simple' | 'Complex' | 'Edge Case';
-    difficulty: number;
     input: string;
-    rationale: string;
 }
 
-export interface SIPDOPatch {
-    explanation: string;
-    suggestedFix: string;
-}
-
-const TestCaseSchema = z.object({
-    simple: z.object({ input: z.string(), rationale: z.string() }),
-    complex: z.object({ input: z.string(), rationale: z.string() }),
-    edge_case: z.object({ input: z.string(), rationale: z.string() })
-});
-
-const PatchSchema = z.object({
-    explanation: z.string(),
-    suggestedFix: z.string()
-});
-
-export class SIPDOService {
-    private history: SIPDOTestCase[] = [];
-
-    /**
-     * Generate test cases with progressive difficulty
-     * @param promptA First prompt to test
-     * @param promptB Second prompt to test (for Battle Arena)
-     * @param difficulty Difficulty level 1-10
-     */
-    async generateProgressiveTests(
-        promptA: string,
-        promptB: string,
-        difficulty: number = 1
-    ): Promise<SIPDOTestCase[]> {
-        const clampedDifficulty = Math.max(1, Math.min(10, difficulty));
-
-        const difficultyGuidance = clampedDifficulty <= 3
-            ? 'Genera casos BÁSICOS y claros. Inputs directos sin ambigüedad.'
-            : clampedDifficulty <= 6
-                ? 'Genera casos con AMBIGÜEDAD: ruido, datos irrelevantes, formatos mixtos.'
-                : 'Genera casos ADVERSARIOS: inyección de prompts, unicode, edge cases extremos, intentos de romper la lógica.';
-
-        const SYSTEM_PROMPT = `Eres un Ingeniero de QA experto en Red Teaming para sistemas de IA.
-
-NIVEL DE DIFICULTAD: ${clampedDifficulty}/10
-${difficultyGuidance}
-
-Genera 3 casos de prueba. Para CADA uno incluye:
-- "input": El input de prueba específico
-- "rationale": Por qué este caso revela debilidades (1 oración, español)
-
-FORMATO JSON ESTRICTO:
-{
-  "simple": { "input": "...", "rationale": "..." },
-  "complex": { "input": "...", "rationale": "..." },
-  "edge_case": { "input": "...", "rationale": "..." }
-}`;
+export const sipdoService = {
+    async generateProgressiveTests(promptA: string, promptB: string, difficulty: number): Promise<SIPDOTestCase[]> {
+        const systemPrompt = `You are a QA Lead. Generate a test suite for two LLM prompts.
+        Create ${difficulty + 2} test cases ranging from Simple to Edge Cases.
+        
+        OUTPUT JSON:
+        [
+            { "type": "Simple", "input": "..." },
+            { "type": "Complex", "input": "..." },
+            { "type": "Edge Case", "input": "..." }
+        ]
+        `;
 
         try {
             const response = await callGemini({
-                prompt: `Analiza estos prompts y genera casos de prueba:\n\nPROMPT A:\n${promptA}\n\nPROMPT B:\n${promptB}`,
-                systemInstruction: SYSTEM_PROMPT,
-                jsonMode: true,
-                temperature: 0.6 + (clampedDifficulty * 0.04) // Más creatividad con más dificultad
+                prompt: `Generate test suite for comparison:\nPROMPT A: ${promptA.substring(0, 500)}\nPROMPT B: ${promptB.substring(0, 500)}`,
+                systemInstruction: systemPrompt,
+                model: "gemini-3-flash-preview",
+                jsonMode: true
             });
-
-            const parsed = ParserService.parseJson(response, TestCaseSchema);
-
-            const cases: SIPDOTestCase[] = [
-                { type: 'Simple', difficulty: clampedDifficulty, input: parsed.simple.input, rationale: parsed.simple.rationale },
-                { type: 'Complex', difficulty: clampedDifficulty, input: parsed.complex.input, rationale: parsed.complex.rationale },
-                { type: 'Edge Case', difficulty: clampedDifficulty, input: parsed.edge_case.input, rationale: parsed.edge_case.rationale }
-            ];
-
-            // Añadir al historial para confirmación global
-            this.history.push(...cases);
-            logger.info(`[SIPDO] Generated ${cases.length} test cases at difficulty ${clampedDifficulty}`);
-
-            return cases;
-        } catch (error) {
-            logger.error("[SIPDO] Generation Failed:", error);
-            // Fallback con casos básicos
+            const parsed = safeJsonParse(response, ProgressiveTestsSchema);
+            return parsed;
+        } catch (e) {
+            logger.error("SIPDO generateProgressiveTests failed", e);
             return [
-                { type: 'Simple', difficulty: 1, input: 'Test input básico', rationale: 'Fallback por error' },
-                { type: 'Complex', difficulty: 1, input: 'Test input con datos adicionales irrelevantes', rationale: 'Fallback por error' },
-                { type: 'Edge Case', difficulty: 1, input: '', rationale: 'Fallback por error' }
-            ];
+                { type: 'Simple', input: 'Basic test request' },
+                { type: 'Complex', input: 'Complex request with multiple constraints' },
+                { type: 'Edge Case', input: 'Empty or malformed input' }
+            ] as SIPDOTestCase[];
         }
     }
-
-    /**
-     * Generate explanatory patch for failed test cases
-     * @param prompt The prompt that failed
-     * @param failedCases Cases where the prompt performed poorly
-     * @param judgeReasoning The judge's explanation of why it failed
-     */
-    async generatePatch(
-        prompt: string,
-        failedCases: SIPDOTestCase[],
-        judgeReasoning: string
-    ): Promise<SIPDOPatch> {
-        const PATCH_PROMPT = `Analiza por qué este prompt falló y genera un parche correctivo.
-
-PROMPT ORIGINAL:
-${prompt}
-
-CASOS FALLIDOS:
-${failedCases.map(c => `- [${c.type} | Dificultad ${c.difficulty}] "${c.input}" → ${c.rationale}`).join('\n')}
-
-RAZONAMIENTO DEL JUEZ:
-${judgeReasoning}
-
-Genera:
-1. "explanation": Por qué falló (2-3 oraciones en español, técnico pero claro)
-2. "suggestedFix": Instrucciones concretas para arreglar el prompt (qué añadir/modificar)
-
-JSON: { "explanation": "...", "suggestedFix": "..." }`;
-
-        try {
-            const response = await callGemini({
-                prompt: PATCH_PROMPT,
-                jsonMode: true,
-                temperature: 0.3
-            });
-
-            return ParserService.parseJson(response, PatchSchema);
-        } catch (error) {
-            logger.error("[SIPDO] Patch Generation Failed:", error);
-            return {
-                explanation: "No se pudo analizar el fallo automáticamente.",
-                suggestedFix: "Revisa manualmente los casos fallidos y ajusta el prompt."
-            };
-        }
-    }
-
-    /**
-     * Get all historical test cases (for global confirmation)
-     */
-    getHistory(): SIPDOTestCase[] {
-        return [...this.history];
-    }
-
-    /**
-     * Clear history (start fresh session)
-     */
-    clearHistory(): void {
-        this.history = [];
-        logger.info("[SIPDO] History cleared");
-    }
-
-    /**
-     * Get history summary for UI display
-     */
-    getHistorySummary(): { total: number; byDifficulty: Record<number, number> } {
-        const byDifficulty: Record<number, number> = {};
-        for (const tc of this.history) {
-            byDifficulty[tc.difficulty] = (byDifficulty[tc.difficulty] || 0) + 1;
-        }
-        return { total: this.history.length, byDifficulty };
-    }
-}
-
-// Singleton instance
-export const sipdoService = new SIPDOService();
+};

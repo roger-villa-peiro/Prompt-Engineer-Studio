@@ -12,6 +12,7 @@ import SignatureComposer from './components/SignatureComposer';
 import SecurityDashboard from './components/sentinel/SecurityDashboard';
 import { PromptVersion, ToastMessage, Attachment } from './types';
 import { supabase } from './src/services/supabaseClient';
+import { AgentWorkspace } from './components/agent/AgentWorkspace';
 
 // Wrapper to handle navigation for the Forge
 const ForgeRoute: React.FC<{ setCurrentPrompt: (s: string) => void, addToast: any }> = ({ setCurrentPrompt, addToast }) => {
@@ -232,6 +233,8 @@ const App: React.FC = () => {
               addToast('Prompt forked to workspace', 'success');
             }} />
           } />
+          {/* Agent Swarm Route */}
+          <Route path="/agent" element={<AgentWorkspace />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
 

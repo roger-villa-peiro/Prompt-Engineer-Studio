@@ -57,7 +57,7 @@ export async function callGemini({
     const generation = ObservabilityService.startGeneration(trace, {
         name: `gemini-${model}`,
         model,
-        input: { prompt: effectivePrompt.substring(0, 500), hasAttachments: !!(attachments?.length) },
+        input: { prompt: (effectivePrompt || "").substring(0, 500), hasAttachments: !!(attachments?.length) },
         modelParameters: { temperature: effectiveTemperature, jsonMode }
     });
 
@@ -102,19 +102,26 @@ export async function callGemini({
         });
     }
     try {
-        const config = {
-            systemInstruction: effectiveSystemInstruction,
+        const generationConfig = {
             responseMimeType: jsonMode ? "application/json" : "text/plain",
             temperature: effectiveTemperature,
             topP: AI_CONFIG.GENERATION_CONFIG.topP,
             topK: AI_CONFIG.GENERATION_CONFIG.topK,
-            safetySettings: [
-                { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-                { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-                { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-                { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
-            ]
         };
+
+        const safetySettings = [
+            { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+            { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+            { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+            { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_ONLY_HIGH },
+        ];
+
+        // v4.0 FIX: Hardened Transport - System Instruction is MANDATORY
+        if (!effectiveSystemInstruction) {
+            throw new Error("Hardened Transport Error: systemInstruction is MISSING. Refusing to call Model without safety protocols.");
+        }
+
+        const systemInstructionObj = { parts: [{ text: effectiveSystemInstruction }] };
 
         const controller = new AbortController();
         if (signal) {
@@ -132,7 +139,9 @@ export async function callGemini({
             body: JSON.stringify({
                 model,
                 contents: [{ role: 'user', parts }],
-                config
+                systemInstruction: systemInstructionObj,
+                generationConfig,
+                safetySettings
             }),
             signal: controller.signal
         });
@@ -141,17 +150,41 @@ export async function callGemini({
 
         if (!response.ok) {
             const errorText = await response.text();
-            throw new Error(`Proxy Error: ${response.status} ${response.statusText} - ${errorText}`);
+            let parsedErrorStr = errorText;
+
+            try {
+                // Try to parse the error as JSON for better logging
+                const jsonError = JSON.parse(errorText);
+                if (jsonError.error) {
+                    const funcErr = jsonError.error; // { code, message, status }
+                    parsedErrorStr = `${funcErr.status || 'Error'} (${funcErr.code}): ${funcErr.message}`;
+
+                    // Specific check for Overloaded/503 to ensure ReliabilityService catches it
+                    if (funcErr.code === 503 || funcErr.status === 'UNAVAILABLE') {
+                        throw new Error(`GenAI Overloaded (503): ${funcErr.message}`);
+                    }
+                }
+            } catch (e) {
+                // Ignore JSON parse error, use raw text
+            }
+
+            throw new Error(`Proxy Error: ${response.status} ${response.statusText} - ${parsedErrorStr}`);
         }
 
         const data = await response.json();
+
+        // CHECK FOR UPSTREAM API ERRORS
+        if (data.error) {
+            throw new Error(`GenAI API Error: ${data.error.message || JSON.stringify(data.error)}`);
+        }
 
         // Normalize response
         let responseText: string;
         if (data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts) {
             responseText = data.candidates[0].content.parts.map((p: any) => p.text).join('');
         } else {
-            responseText = JSON.stringify(data);
+            // If no candidates and no explicit error, this is still a failure state for a generation request
+            throw new Error(`GenAI Empty Response: No candidates returned. Raw: ${JSON.stringify(data).substring(0, 200)}`);
         }
 
         // End observability generation

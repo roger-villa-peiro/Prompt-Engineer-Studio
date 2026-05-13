@@ -58,24 +58,57 @@ app.post('/api/generate', async (req, res) => {
 
         const genAI = new GoogleGenAI({ apiKey });
 
-        const { model, contents, config } = req.body;
+        const { model, contents, systemInstruction, generationConfig, safetySettings } = req.body;
 
-        // Fix for @google/genai SDK: systemInstruction must be top-level, not in config
-        let systemInstruction = undefined;
-        if (config && config.systemInstruction) {
-            systemInstruction = config.systemInstruction;
-            // Clean it up from config to avoid SDK validation errors
-            delete config.systemInstruction;
+        console.log(`[Server] Request Model: ${model}`);
+        console.log(`[Server] Has systemInstruction: ${!!systemInstruction}`);
+        if (systemInstruction) {
+            console.log(`[Server] systemInstruction type: ${typeof systemInstruction}`);
+            console.log(`[Server] systemInstruction value: ${JSON.stringify(systemInstruction).substring(0, 200)}...`);
+        } else {
+            console.warn("[Server] WARNING: systemInstruction is MISSING or UNDEFINED");
         }
 
         const response = await genAI.models.generateContent({
-            model: model || 'gemini-2.5-flash',
+            model: model || 'gemini-3-flash-preview',
             contents,
-            config: config || {},
-            systemInstruction
+            config: generationConfig || {},
+            systemInstruction,
+            safetySettings
         } as any);
 
-        res.json(response);
+        // CRITICAL FIX: The SDK's GenerateContentResponse is a class with getter properties.
+        // `response.text` is a getter that automatically strips thought parts from thinking models.
+        // Serializing the raw class via res.json() causes issues because getters don't serialize.
+        // Solution: Extract text server-side and build a normalized response.
+
+        const text = response.text;
+        const usageMetadata = response.usageMetadata;
+
+        // Guard: Empty response text indicates model returned nothing useful
+        if (!text || text.trim().length === 0) {
+            console.error(`[Server] Empty response from model. Model: ${model || 'gemini-3-flash-preview'}`);
+            return res.status(502).json({ error: 'Model returned an empty response. Please try again.' });
+        }
+
+        // Build a clean, normalized response that the client expects
+        const normalizedResponse = {
+            candidates: [{
+                content: {
+                    parts: [{ text }],
+                    role: 'model'
+                }
+            }],
+            usageMetadata: usageMetadata ? {
+                promptTokenCount: usageMetadata.promptTokenCount,
+                candidatesTokenCount: usageMetadata.candidatesTokenCount,
+                totalTokenCount: usageMetadata.totalTokenCount
+            } : undefined
+        };
+
+        console.log(`[Server] Response OK. Length: ${text.length}, Model: ${model || 'gemini-3-flash-preview'}`);
+
+        res.json(normalizedResponse);
     } catch (error: any) {
         console.error("Proxy Error:", error);
         res.status(500).json({ error: error.message || "Internal Server Error" });

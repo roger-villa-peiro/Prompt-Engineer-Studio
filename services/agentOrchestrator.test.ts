@@ -9,6 +9,33 @@ import { ParserService } from './parserService';
 vi.mock('./aiTransport');
 vi.mock('./reliabilityService');
 vi.mock('./parserService');
+vi.mock('./metaPromptService', () => ({
+    runMetaPromptingFlow: vi.fn().mockResolvedValue(null),  // Always skip meta-prompting in tests
+}));
+vi.mock('../config/architectPrompts', () => ({
+    GET_REQUIREMENTS_PROMPT: vi.fn().mockReturnValue('REQUIREMENTS_PROMPT'),
+    GET_DESIGN_PROMPT: vi.fn().mockReturnValue('DESIGN_PROMPT'),
+    GET_TASKS_PROMPT: vi.fn().mockReturnValue('TASKS_PROMPT'),
+}));
+vi.mock('./loggerService', () => {
+    const instance = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+    return { logger: instance, createLogger: () => instance };
+});
+vi.mock('./observabilityService', () => ({
+    ObservabilityService: {
+        startTrace: vi.fn().mockReturnValue(null),
+        startGeneration: vi.fn().mockReturnValue(null),
+        endGeneration: vi.fn(),
+        startSpan: vi.fn().mockReturnValue(null),
+        updateSpan: vi.fn(),
+        endSpan: vi.fn(),
+        endTrace: vi.fn(),
+        score: vi.fn(),
+        flush: vi.fn().mockResolvedValue(undefined),
+        flushTraces: vi.fn().mockResolvedValue(undefined),
+        getClient: vi.fn().mockReturnValue(null),
+    },
+}));
 vi.mock('../config/aiConfig', () => ({
     AI_CONFIG: {
         MAX_RETRIES: 1, // Minimize retries for testing
@@ -20,10 +47,26 @@ vi.mock('../config/aiConfig', () => ({
         }
     }
 }));
-vi.mock('../config/systemPrompts', () => ({
-    GET_CLARITY_AGENT_PROMPT: () => "CLAITY_PROMPT",
-    GET_ARCHITECT_PROMPT: () => "ARCHITECT_PROMPT",
-    CRITIC_PROMPT: "CRITIC_PROMPT"
+vi.mock('../config/systemPrompts', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../config/systemPrompts')>();
+    return {
+        ...actual,
+        GET_CLARITY_AGENT_PROMPT: () => "CLARITY_PROMPT",
+        GET_ARCHITECT_PROMPT: () => "ARCHITECT_PROMPT",
+        CRITIC_PROMPT: "CRITIC_PROMPT"
+    };
+});
+vi.mock('./selfRefineService', () => ({
+    selfRefineLoop: vi.fn().mockImplementation((initialPrompt: string) => Promise.resolve({
+        finalPrompt: initialPrompt,  // Pass-through: return input as-is
+        iterations: [],
+        improvementDelta: 0,
+        totalIterations: 0,
+        converged: false,
+        exitReason: 'max_iterations',
+        securityEvents: []
+    })),
+    detectPromptType: vi.fn().mockReturnValue('TASK'),
 }));
 vi.mock('./memoryService', () => ({
     MemoryService: {
